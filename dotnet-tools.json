@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "ulinkrpc.codegen": {
+      "version": "0.13.3",
+      "commands": [
+        "ulinkrpc-codegen"
+      ],
+      "rollForward": false
+    }
+  }
+}
