@@ -6,6 +6,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Shared.Interfaces;
+using System.Collections.Generic;
 using ULinkRPC.Server;
 
 [assembly: RpcGeneratedServicesBinder(typeof(Shared.Interfaces.Server.Generated.AllServicesBinder))]

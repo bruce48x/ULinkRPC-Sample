@@ -16,9 +16,19 @@ namespace Shared.Interfaces.Server.Generated
 
         public PlayerCallbackProxy(RpcSession session) { _session = session; }
 
-        public void OnMove(PlayerPositions playerPositions)
+        public void OnWorldState(WorldState worldState)
         {
-            _ = _session.PushAsync<PlayerPositions>(ServiceId, 1, playerPositions).AsTask();
+            _ = _session.PushAsync<WorldState>(ServiceId, 1, worldState).AsTask();
+        }
+
+        public void OnPlayerDead(PlayerDead deadEvent)
+        {
+            _ = _session.PushAsync<PlayerDead>(ServiceId, 2, deadEvent).AsTask();
+        }
+
+        public void OnMatchEnd(MatchEnd matchEnd)
+        {
+            _ = _session.PushAsync<MatchEnd>(ServiceId, 3, matchEnd).AsTask();
         }
 
     }

@@ -13,48 +13,118 @@ namespace Shared.Interfaces
         ValueTask<LoginReply> LoginAsync(LoginRequest req);
         
         [RpcMethod(2)]
-        ValueTask Move(MoveRequest req);
+        ValueTask SubmitInput(InputMessage req);
+
+        [RpcMethod(3)]
+        ValueTask LogoutAsync();
     }
 
     [RpcCallback(typeof(IPlayerService))]
     public interface IPlayerCallback
     {
         [RpcPush(1)]
-        void OnMove(PlayerPositions playerPositions);
+        void OnWorldState(WorldState worldState);
+
+        [RpcPush(2)]
+        void OnPlayerDead(PlayerDead deadEvent);
+
+        [RpcPush(3)]
+        void OnMatchEnd(MatchEnd matchEnd);
     }
 
-    [MemoryPackable]
+    [MemoryPackable(GenerateType.VersionTolerant)]
     public partial class LoginRequest
     {
+        [MemoryPackOrder(0)]
         public string Account { get; set; } = "";
+        [MemoryPackOrder(1)]
         public string Password { get; set; } = "";
     }
 
-    [MemoryPackable]
+    [MemoryPackable(GenerateType.VersionTolerant)]
     public partial class LoginReply
     {
+        [MemoryPackOrder(0)]
         public int Code { get; set; }
+        [MemoryPackOrder(1)]
         public string Token { get; set; } = "";
+        [MemoryPackOrder(2)]
+        public string PlayerId { get; set; } = "";
     }
 
-    [MemoryPackable]
-    public partial class PlayerPosition
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class InputMessage
     {
+        [MemoryPackOrder(0)]
         public string PlayerId { get; set; } = "";
-        public Vector2 Position { get; set; }
-    }
-    
-    
-    [MemoryPackable]
-    public partial class MoveRequest
-    {
-        public string PlayerId { get; set; } = "";
-        public int Direction { get; set; }
+        [MemoryPackOrder(1)]
+        public float MoveX { get; set; }
+        [MemoryPackOrder(2)]
+        public float MoveY { get; set; }
+        [MemoryPackOrder(3)]
+        public bool Dash { get; set; }
+        [MemoryPackOrder(4)]
+        public int Tick { get; set; }
     }
 
-    [MemoryPackable]
-    public partial class PlayerPositions
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class WorldState
     {
-        public List<PlayerPosition> playerPositions { get; set; }
+        [MemoryPackOrder(0)]
+        public int Tick { get; set; }
+        [MemoryPackOrder(1)]
+        public int RespawnDelaySeconds { get; set; }
+        [MemoryPackOrder(2)]
+        public List<PlayerState> Players { get; set; } = new();
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class PlayerState
+    {
+        [MemoryPackOrder(0)]
+        public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(1)]
+        public float X { get; set; }
+        [MemoryPackOrder(2)]
+        public float Y { get; set; }
+        [MemoryPackOrder(3)]
+        public float Vx { get; set; }
+        [MemoryPackOrder(4)]
+        public float Vy { get; set; }
+        [MemoryPackOrder(5)]
+        public PlayerLifeState State { get; set; }
+        [MemoryPackOrder(6)]
+        public bool Alive { get; set; }
+        [MemoryPackOrder(7)]
+        public int RespawnRemainingSeconds { get; set; }
+        [MemoryPackOrder(8)]
+        public int Score { get; set; }
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class PlayerDead
+    {
+        [MemoryPackOrder(0)]
+        public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(1)]
+        public int Tick { get; set; }
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class MatchEnd
+    {
+        [MemoryPackOrder(0)]
+        public string WinnerPlayerId { get; set; } = "";
+        [MemoryPackOrder(1)]
+        public int Tick { get; set; }
+    }
+
+    public enum PlayerLifeState
+    {
+        Idle = 0,
+        Move = 1,
+        Dash = 2,
+        Stunned = 3,
+        Dead = 4
     }
 }

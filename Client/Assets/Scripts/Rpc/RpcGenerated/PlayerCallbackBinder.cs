@@ -12,15 +12,26 @@ namespace Rpc.Generated
     {
         private const int ServiceId = 1;
 
-        private static readonly RpcPushMethod<PlayerPositions> onMovePushMethod = new(ServiceId, 1);
+        private static readonly RpcPushMethod<WorldState> onWorldStatePushMethod = new(ServiceId, 1);
+        private static readonly RpcPushMethod<PlayerDead> onPlayerDeadPushMethod = new(ServiceId, 2);
+        private static readonly RpcPushMethod<MatchEnd> onMatchEndPushMethod = new(ServiceId, 3);
 
         public static void Bind(IRpcClient client, IPlayerCallback receiver)
         {
-            client.RegisterPushHandler(onMovePushMethod, (arg) =>
+            client.RegisterPushHandler(onWorldStatePushMethod, (arg) =>
             {
-                receiver.OnMove(arg);
+                receiver.OnWorldState(arg);
             });
 
+            client.RegisterPushHandler(onPlayerDeadPushMethod, (arg) =>
+            {
+                receiver.OnPlayerDead(arg);
+            });
+
+            client.RegisterPushHandler(onMatchEndPushMethod, (arg) =>
+            {
+                receiver.OnMatchEnd(arg);
+            });
         }
     }
 }

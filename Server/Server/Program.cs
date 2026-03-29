@@ -1,12 +1,29 @@
-using ULinkRPC.Core;
-using ULinkRPC.Server;
-using ULinkRPC.Serializer.MemoryPack;
-using ULinkRPC.Transport.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Orleans;
+using Server.Hosting;
+using Server.Orleans;
+using Server.Services;
 
-var commandLineArgs = Environment.GetCommandLineArgs().Skip(1).ToArray();
-var builder = RpcServerHostBuilder.Create()
-    .UseCommandLine(commandLineArgs)
-    .UseSerializer(new MemoryPackRpcSerializer());    
-builder.UseAcceptor(async ct => await WsConnectionAcceptor.CreateAsync(builder.ResolvePort(20000), "/ws", ct));
+var builder = Host.CreateApplicationBuilder(args)
+    .UseOrleansClient(client =>
+    {
+        client.UseLocalhostClustering(
+            serviceId: "ULinkRPC-Sample-Server",
+            clusterId: "dev");
+    });
 
-await builder.RunAsync();
+builder.Services.AddSingleton<GameArenaRuntime>();
+builder.Services.Configure<GameArenaOptions>(builder.Configuration.GetSection("GameArena"));
+builder.Services.AddSingleton(static sp =>
+{
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GameArenaOptions>>();
+    return options.Value;
+});
+builder.Services.AddHostedService<GameArenaHostedService>();
+builder.Services.AddHostedService<RpcServerHostedService>();
+
+var host = builder.Build();
+ClusterClientRuntime.Initialize(host.Services.GetRequiredService<IClusterClient>());
+GameArenaRuntimeRegistry.Initialize(host.Services.GetRequiredService<GameArenaRuntime>());
+await host.RunAsync();

@@ -42,25 +42,25 @@ namespace Rpc.Testing
 
     public sealed class RpcConnectionTester : MonoBehaviour
     {
-        [SerializeField] private RpcEndpointSettings _endpoint = RpcEndpointSettings.CreateDefault();
+        [SerializeField]
+        private RpcEndpointSettings _endpoint = RpcEndpointSettings.CreateWebSocket("127.0.0.1", 20000);
 
-        
         [Header("Login")] public string Account = "a";
         public string Password = "b";
+
         public float RequestIntervalSeconds = 1f;
-
         public bool AutoConnect = true;
-
-        private readonly CancellationTokenSource _cts = new();
         private readonly RpcClient.RpcCallbackBindings _callbacks;
 
-        private RpcClient? _connection;
-        private bool _isShuttingDown;
-        private IPlayerService? _player;
-        private Task? _pollingTask;
+        private readonly CancellationTokenSource _cts = new();
         private bool _cleanupStarted;
+        private RpcClient? _connection;
+        private IPlayerService? _player;
+        private string _playerId = string.Empty;
+        private Task? _pollingTask;
         private bool _stopped;
-        
+        private int _tick;
+
         public RpcConnectionTester()
         {
             _callbacks = new RpcClient.RpcCallbackBindings();
@@ -69,32 +69,36 @@ namespace Rpc.Testing
 
         private async void Start()
         {
-            if (!AutoConnect)
+            ApplyLaunchOverrides();
+
+            if (!Application.isEditor || !AutoConnect)
                 return;
 
-            await ConnectAndPingAsync();
+            await ConnectAndTestAsync();
+        }
+
+        private void OnDisable()
+        {
+            BeginShutdown();
         }
 
         private void OnDestroy()
         {
-            _ = ShutdownAsync();
+            BeginShutdown();
+            _cts.Dispose();
         }
 
-        [ContextMenu("Connect And Ping")]
-        public async Task ConnectAndPingAsync()
+        [ContextMenu("Connect And Test")]
+        public async Task ConnectAndTestAsync()
         {
             if (_cleanupStarted || _connection is not null)
                 return;
 
-            Debug.Log($"[TCP] Connecting to {_endpoint.Host}:{_endpoint.Port}");
+            Debug.Log($"[WS] Connecting to {_endpoint.GetWebSocketUrl()}");
 
             try
             {
-                _connection = new RpcClient(
-                    new RpcClientOptions(
-                        new WsTransport(_endpoint.GetWebSocketUrl()),
-                        new MemoryPackRpcSerializer()),
-                    _callbacks);
+                _connection = WebSocketRpcClientFactory.Create(_endpoint.Host, _endpoint.Port, _endpoint.Path, _callbacks);
                 await _connection.ConnectAsync(_cts.Token);
                 _connection.Disconnected += OnDisconnected;
                 _player = _connection.Api.Shared.Player;
@@ -105,29 +109,36 @@ namespace Rpc.Testing
                     Password = Password
                 });
 
-                Debug.Log($"[TCP] Login ok: account={Account}, code={reply.Code}, token={reply.Token}");
+                _playerId = reply.PlayerId;
+                Debug.Log($"[WS] Login ok: account={Account}, playerId={reply.PlayerId}, code={reply.Code}, token={reply.Token}");
                 _pollingTask = RunPollingAsync();
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[TCP] Connect failed: {ex}");
+                Debug.LogError($"[WS] Connect failed: {ex}");
                 await CleanupAsync();
             }
         }
-        
+
         private async Task RunPollingAsync()
         {
             var interval = Mathf.Max(0.1f, RequestIntervalSeconds);
 
             while (!_cts.IsCancellationRequested && !_stopped)
-            {
                 try
                 {
-                    await _player!.Move(new MoveRequest() { Direction = 1, PlayerId = Account });
+                    await _player!.SubmitInput(new InputMessage
+                    {
+                        PlayerId = _playerId,
+                        MoveX = 1f,
+                        MoveY = 0f,
+                        Dash = false,
+                        Tick = ++_tick
+                    });
                     if (_cts.IsCancellationRequested || _stopped)
                         return;
 
-                    Debug.Log($"{Account} Moved");
+                    Debug.Log($"{Account} Input submitted");
                     await Task.Delay(TimeSpan.FromSeconds(interval), _cts.Token);
                 }
                 catch (OperationCanceledException)
@@ -136,16 +147,29 @@ namespace Rpc.Testing
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[TCP] Polling failed: {ex.Message}");
+                    Debug.LogWarning($"[WS] Polling failed: {ex.Message}");
                     return;
                 }
-            }
         }
-        
+
+        private void BeginShutdown()
+        {
+            if (_cleanupStarted)
+                return;
+
+            _cleanupStarted = true;
+            _stopped = true;
+            _cts.Cancel();
+
+            if (_connection is not null)
+                _connection.Disconnected -= OnDisconnected;
+
+            _ = CleanupAsync();
+        }
+
         private async Task CleanupAsync()
         {
             if (_pollingTask is not null)
-            {
                 try
                 {
                     await _pollingTask;
@@ -153,7 +177,6 @@ namespace Rpc.Testing
                 catch (OperationCanceledException)
                 {
                 }
-            }
 
             if (_connection is not null)
             {
@@ -171,44 +194,23 @@ namespace Rpc.Testing
             _connection = null;
 
             if (ex is null)
-                Debug.Log("[TCP] Disconnected.");
+                Debug.Log("[WS] Disconnected.");
             else
-                Debug.LogWarning($"[TCP] Disconnected: {ex.Message}");
+                Debug.LogWarning($"[WS] Disconnected: {ex.Message}");
         }
 
-        private string DescribeEndpoint()
+        private void ApplyLaunchOverrides()
         {
-            var path = NormalizePath(_endpoint.Path);
-            return string.IsNullOrEmpty(path)
-                ? $"{_endpoint.Host}:{_endpoint.Port}"
-                : $"{_endpoint.Host}:{_endpoint.Port}{path}";
-        }
+            var launchArguments = Rpc.RpcLaunchArguments.ReadCurrentProcess();
+            launchArguments.ApplyTo(ref _endpoint.Host, ref _endpoint.Port, ref _endpoint.Path);
+            launchArguments.ApplyCredentials(ref Account, ref Password);
 
-        private static string NormalizePath(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return string.Empty;
-
-            return path.StartsWith("/", StringComparison.Ordinal) ? path : "/" + path;
-        }
-
-        private async Task ShutdownAsync()
-        {
-            if (_isShuttingDown)
-                return;
-
-            _isShuttingDown = true;
-            _cts.Cancel();
-
-            if (_connection is not null)
+            if (launchArguments.HasOverrides)
             {
-                await _connection.DisposeAsync();
-                _connection = null;
+                Debug.Log($"[LaunchArgs] RpcConnectionTester host={_endpoint.Host}, port={_endpoint.Port}, path={_endpoint.Path}, account={Account}");
             }
-
-            _cts.Dispose();
         }
-        
+
         private sealed class PlayerCallbacks : RpcClient.PlayerCallbackBase
         {
             private readonly RpcConnectionTester _owner;
@@ -218,10 +220,28 @@ namespace Rpc.Testing
                 _owner = owner;
             }
 
-            public override void OnMove(PlayerPositions playerPositions)
+            public override void OnWorldState(WorldState worldState)
             {
-                Debug.Log($"OnMove {playerPositions.playerPositions.Count}");
+                _owner.HandleWorldState(worldState);
             }
+
+            public override void OnPlayerDead(PlayerDead deadEvent)
+            {
+                Debug.Log($"[WS] Player dead: {deadEvent.PlayerId} @ tick {deadEvent.Tick}");
+            }
+
+            public override void OnMatchEnd(MatchEnd matchEnd)
+            {
+                Debug.Log($"[WS] Match end: winner={matchEnd.WinnerPlayerId}, tick={matchEnd.Tick}");
+            }
+        }
+
+        private void HandleWorldState(WorldState worldState)
+        {
+            if (_stopped)
+                return;
+
+            Debug.Log($"[WS] WorldState tick={worldState.Tick}, players={worldState.Players.Count}");
         }
     }
 }
