@@ -6,10 +6,10 @@ namespace Server.Services;
 
 public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposable
 {
-    private readonly IPlayerCallback _callback;
     private readonly GameArenaRuntime _arenaRuntime;
-    private string? _playerId;
+    private readonly IPlayerCallback _callback;
     private bool _disposed;
+    private string? _playerId;
 
     public PlayerService(IPlayerCallback callback)
     {
@@ -17,14 +17,24 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         _arenaRuntime = GameArenaRuntimeRegistry.Instance;
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
+    }
+
+    public void Dispose()
+    {
+        DisposeAsyncCore().GetAwaiter().GetResult();
+        GC.SuppressFinalize(this);
+    }
+
     public async ValueTask<LoginReply> LoginAsync(LoginRequest req)
     {
         ThrowIfDisposed();
 
         if (string.IsNullOrWhiteSpace(req.Account) || string.IsNullOrWhiteSpace(req.Password))
-        {
             return new LoginReply { Code = 1 };
-        }
 
         UserLoginResult loginResult;
         try
@@ -45,16 +55,11 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
     {
         ThrowIfDisposed();
 
-        if (string.IsNullOrWhiteSpace(_playerId))
-        {
-            return ValueTask.CompletedTask;
-        }
+        if (string.IsNullOrWhiteSpace(_playerId)) return ValueTask.CompletedTask;
 
         if (!string.IsNullOrWhiteSpace(req.PlayerId) &&
             !string.Equals(req.PlayerId, _playerId, StringComparison.Ordinal))
-        {
             return ValueTask.CompletedTask;
-        }
 
         req.PlayerId = _playerId;
         _arenaRuntime.SubmitInput(req);
@@ -65,10 +70,7 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
     {
         ThrowIfDisposed();
 
-        if (string.IsNullOrWhiteSpace(_playerId))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(_playerId)) return;
 
         var playerId = _playerId;
         _playerId = null;
@@ -85,24 +87,9 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         }
     }
 
-    public void Dispose()
-    {
-        DisposeAsyncCore().GetAwaiter().GetResult();
-        GC.SuppressFinalize(this);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await DisposeAsyncCore().ConfigureAwait(false);
-        GC.SuppressFinalize(this);
-    }
-
     private async ValueTask DisposeAsyncCore()
     {
-        if (_disposed)
-        {
-            return;
-        }
+        if (_disposed) return;
 
         _disposed = true;
 
@@ -126,4 +113,3 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
 }
-

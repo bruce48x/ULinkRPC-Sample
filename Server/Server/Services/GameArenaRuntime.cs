@@ -20,17 +20,19 @@ public sealed class GameArenaRuntime
     private const int EliminationCreditWindowTicks = 20;
     private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(50);
 
+    private static readonly Vector2 Zero = new(0f, 0f);
+
     private readonly object _gate = new();
-    private readonly float _respawnDelaySeconds;
-    private readonly int _respawnDelaySecondsCeiling;
-    private readonly Dictionary<string, ConnectedPlayer> _players = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, PlayerProfile> _profiles = new(StringComparer.Ordinal);
     private readonly List<PlayerDead> _pendingDeaths = new();
     private readonly List<ScoreUpdate> _pendingScoreUpdates = new();
-    private int _tick;
-    private string? _winnerPlayerId;
+    private readonly Dictionary<string, ConnectedPlayer> _players = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlayerProfile> _profiles = new(StringComparer.Ordinal);
+    private readonly float _respawnDelaySeconds;
+    private readonly int _respawnDelaySecondsCeiling;
     private MatchEnd? _pendingMatchEnd;
     private int? _restartAtTick;
+    private int _tick;
+    private string? _winnerPlayerId;
 
     public GameArenaRuntime(GameArenaOptions options)
     {
@@ -96,20 +98,14 @@ public sealed class GameArenaRuntime
     {
         lock (_gate)
         {
-            if (!_players.TryGetValue(input.PlayerId, out var player) || !player.Alive)
-            {
-                return;
-            }
+            if (!_players.TryGetValue(input.PlayerId, out var player) || !player.Alive) return;
 
             player.LastInputTick = input.Tick;
             player.Input = new Vector2(
                 Math.Clamp(input.MoveX, -1f, 1f),
                 Math.Clamp(input.MoveY, -1f, 1f));
 
-            if (input.Dash)
-            {
-                player.PendingDash = true;
-            }
+            if (input.Dash) player.PendingDash = true;
         }
     }
 
@@ -120,13 +116,11 @@ public sealed class GameArenaRuntime
 
         lock (_gate)
         {
-            if (!_players.Remove(playerId, out var player))
-            {
-                return ValueTask.CompletedTask;
-            }
+            if (!_players.Remove(playerId, out var player)) return ValueTask.CompletedTask;
 
             CaptureProfileLocked(player);
-            _pendingDeaths.RemoveAll(deadEvent => string.Equals(deadEvent.PlayerId, playerId, StringComparison.Ordinal));
+            _pendingDeaths.RemoveAll(deadEvent =>
+                string.Equals(deadEvent.PlayerId, playerId, StringComparison.Ordinal));
 
             if (_players.Count == 0)
             {
@@ -135,10 +129,8 @@ public sealed class GameArenaRuntime
                 return ValueTask.CompletedTask;
             }
 
-            if (_players.Count < MinPlayersToStart || string.Equals(_winnerPlayerId, playerId, StringComparison.Ordinal))
-            {
-                ClearMatchStateLocked();
-            }
+            if (_players.Count < MinPlayersToStart ||
+                string.Equals(_winnerPlayerId, playerId, StringComparison.Ordinal)) ClearMatchStateLocked();
 
             callbacks = _players.Values
                 .Where(static p => p.Connected && p.Callback is not null)
@@ -148,10 +140,7 @@ public sealed class GameArenaRuntime
             snapshot = CreateWorldStateLocked();
         }
 
-        foreach (var callback in callbacks)
-        {
-            SafeInvoke(callback, cb => cb.OnWorldState(snapshot));
-        }
+        foreach (var callback in callbacks) SafeInvoke(callback, cb => cb.OnWorldState(snapshot));
 
         return ValueTask.CompletedTask;
     }
@@ -161,10 +150,7 @@ public sealed class GameArenaRuntime
         using var timer = new PeriodicTimer(TickInterval);
         try
         {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-            {
-                TickSimulation();
-            }
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false)) TickSimulation();
         }
         catch (OperationCanceledException)
         {
@@ -201,36 +187,23 @@ public sealed class GameArenaRuntime
             if (!player.Alive)
             {
                 if (player.RespawnRemaining > 0f)
-                {
                     player.RespawnRemaining = MathF.Max(0f, player.RespawnRemaining - deltaTime);
-                }
 
-                if (player.RespawnRemaining <= 0f)
-                {
-                    RespawnPlayerLocked(player);
-                }
+                if (player.RespawnRemaining <= 0f) RespawnPlayerLocked(player);
 
                 player.Velocity = Zero;
                 continue;
             }
 
-            if (player.StunRemaining > 0f)
-            {
-                player.StunRemaining = MathF.Max(0f, player.StunRemaining - deltaTime);
-            }
+            if (player.StunRemaining > 0f) player.StunRemaining = MathF.Max(0f, player.StunRemaining - deltaTime);
 
-            if (player.DashRemaining > 0f)
-            {
-                player.DashRemaining = MathF.Max(0f, player.DashRemaining - deltaTime);
-            }
+            if (player.DashRemaining > 0f) player.DashRemaining = MathF.Max(0f, player.DashRemaining - deltaTime);
 
             var desired = player.Input;
-            if (LengthSquared(desired) > 1f)
-            {
-                desired = Normalize(desired);
-            }
+            if (LengthSquared(desired) > 1f) desired = Normalize(desired);
 
-            if (player.PendingDash && LengthSquared(desired) > 0f && player.DashRemaining <= 0f && player.StunRemaining <= 0f)
+            if (player.PendingDash && LengthSquared(desired) > 0f && player.DashRemaining <= 0f &&
+                player.StunRemaining <= 0f)
             {
                 player.DashRemaining = DashTimeSeconds;
                 player.PendingDash = false;
@@ -242,21 +215,13 @@ public sealed class GameArenaRuntime
             }
 
             if (player.StunRemaining > 0f)
-            {
                 player.Velocity *= 0.85f;
-            }
             else if (player.DashRemaining > 0f)
-            {
                 player.Velocity = player.DashDirection * DashSpeed;
-            }
             else if (LengthSquared(desired) > 0f)
-            {
                 player.Velocity = desired * BaseSpeed;
-            }
             else
-            {
                 player.Velocity = Zero;
-            }
 
             player.Position += player.Velocity * deltaTime;
         }
@@ -266,36 +231,31 @@ public sealed class GameArenaRuntime
     {
         var alivePlayers = _players.Values.Where(static p => p.Alive).ToArray();
         for (var i = 0; i < alivePlayers.Length; i++)
+        for (var j = i + 1; j < alivePlayers.Length; j++)
         {
-            for (var j = i + 1; j < alivePlayers.Length; j++)
-            {
-                var a = alivePlayers[i];
-                var b = alivePlayers[j];
-                var offset = b.Position - a.Position;
-                var distance = MathF.Sqrt(LengthSquared(offset));
-                var minDistance = PlayerRadius * 2f;
-                if (distance <= 0.0001f || distance >= minDistance)
-                {
-                    continue;
-                }
+            var a = alivePlayers[i];
+            var b = alivePlayers[j];
+            var offset = b.Position - a.Position;
+            var distance = MathF.Sqrt(LengthSquared(offset));
+            var minDistance = PlayerRadius * 2f;
+            if (distance <= 0.0001f || distance >= minDistance) continue;
 
-                var direction = offset / distance;
-                var overlap = minDistance - distance;
-                var separation = direction * (overlap * 0.5f);
-                a.Position -= separation;
-                b.Position += separation;
+            var direction = offset / distance;
+            var overlap = minDistance - distance;
+            var separation = direction * (overlap * 0.5f);
+            a.Position -= separation;
+            b.Position += separation;
 
-                var pushScale = (a.DashRemaining > 0f || b.DashRemaining > 0f) ? 1.75f : 1f;
-                var impulse = direction * (PushForce * pushScale);
-                a.Velocity -= impulse;
-                b.Velocity += impulse;
-                a.StunRemaining = MathF.Max(a.StunRemaining, StunTimeSeconds);
-                b.StunRemaining = MathF.Max(b.StunRemaining, StunTimeSeconds);
-                a.LastTouchedByPlayerId = b.PlayerId;
-                a.LastTouchedTick = _tick;
-                b.LastTouchedByPlayerId = a.PlayerId;
-                b.LastTouchedTick = _tick;
-            }
+            var pushScale = a.DashRemaining > 0f || b.DashRemaining > 0f ? 1.75f : 1f;
+            var impulse = direction * (PushForce * pushScale);
+            a.Velocity -= impulse;
+            b.Velocity += impulse;
+            a.StunRemaining = MathF.Max(a.StunRemaining, StunTimeSeconds);
+            b.StunRemaining = MathF.Max(b.StunRemaining, StunTimeSeconds);
+            a.LastTouchedByPlayerId = b.PlayerId;
+            a.LastTouchedTick = _tick;
+            b.LastTouchedByPlayerId = a.PlayerId;
+            b.LastTouchedTick = _tick;
         }
     }
 
@@ -303,10 +263,7 @@ public sealed class GameArenaRuntime
     {
         foreach (var player in _players.Values)
         {
-            if (!player.Alive)
-            {
-                continue;
-            }
+            if (!player.Alive) continue;
 
             if (MathF.Abs(player.Position.x) > ArenaLimit || MathF.Abs(player.Position.y) > ArenaLimit)
             {
@@ -320,10 +277,7 @@ public sealed class GameArenaRuntime
                 player.PendingDash = false;
                 player.RespawnRemaining = _respawnDelaySeconds;
 
-                if (TryGetScoringPlayerLocked(player, out var scorer))
-                {
-                    AdjustScoreLocked(scorer, 1);
-                }
+                if (TryGetScoringPlayerLocked(player, out var scorer)) AdjustScoreLocked(scorer, 1);
 
                 var penalty = Math.Max(1, (player.Score + 1) / 2);
                 AdjustScoreLocked(player, -penalty);
@@ -346,26 +300,14 @@ public sealed class GameArenaRuntime
             return;
         }
 
-        if (_winnerPlayerId is not null)
-        {
-            return;
-        }
+        if (_winnerPlayerId is not null) return;
 
-        if (_players.Values.Any(static p => !p.Alive))
-        {
-            return;
-        }
+        if (_players.Values.Any(static p => !p.Alive)) return;
 
         var alivePlayers = _players.Values.Where(static p => p.Alive).ToArray();
-        if (alivePlayers.Length == 0)
-        {
-            return;
-        }
+        if (alivePlayers.Length == 0) return;
 
-        if (_players.Count < MinPlayersToStart)
-        {
-            return;
-        }
+        if (_players.Count < MinPlayersToStart) return;
 
         if (alivePlayers.Length == 1)
         {
@@ -407,7 +349,6 @@ public sealed class GameArenaRuntime
         };
 
         foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
-        {
             state.Players.Add(new PlayerState
             {
                 PlayerId = player.PlayerId,
@@ -420,46 +361,28 @@ public sealed class GameArenaRuntime
                 RespawnRemainingSeconds = player.Alive ? 0 : (int)MathF.Ceiling(player.RespawnRemaining),
                 Score = player.Score
             });
-        }
 
         return state;
     }
 
     private void PublishBatch(BroadcastBatch batch)
     {
-        foreach (var callback in batch.Callbacks)
-        {
-            SafeInvoke(callback, cb => cb.OnWorldState(batch.WorldState));
-        }
+        foreach (var callback in batch.Callbacks) SafeInvoke(callback, cb => cb.OnWorldState(batch.WorldState));
 
         foreach (var deadEvent in batch.Deaths)
-        {
-            foreach (var callback in batch.Callbacks)
-            {
-                SafeInvoke(callback, cb => cb.OnPlayerDead(deadEvent));
-            }
-        }
+        foreach (var callback in batch.Callbacks)
+            SafeInvoke(callback, cb => cb.OnPlayerDead(deadEvent));
 
         if (batch.MatchEnd is not null)
-        {
             foreach (var callback in batch.Callbacks)
-            {
                 SafeInvoke(callback, cb => cb.OnMatchEnd(batch.MatchEnd));
-            }
-        }
 
-        foreach (var scoreUpdate in batch.ScoreUpdates)
-        {
-            _ = PersistScoreAsync(scoreUpdate);
-        }
+        foreach (var scoreUpdate in batch.ScoreUpdates) _ = PersistScoreAsync(scoreUpdate);
     }
 
     private void ResetMatchIfNeededLocked()
     {
-        if (_players.Count >= MinPlayersToStart && _players.Values.All(static p => !p.Alive))
-        {
-            ResetMatchLocked();
-        }
+        if (_players.Count >= MinPlayersToStart && _players.Values.All(static p => !p.Alive)) ResetMatchLocked();
     }
 
     private void ResetMatchLocked()
@@ -493,9 +416,7 @@ public sealed class GameArenaRuntime
     private int ClaimSpawnIndexLocked(int preferredSpawnIndex)
     {
         if (preferredSpawnIndex >= 0 && _players.Values.All(player => player.SpawnIndex != preferredSpawnIndex))
-        {
             return preferredSpawnIndex;
-        }
 
         return GetNextSpawnIndexLocked();
     }
@@ -507,10 +428,7 @@ public sealed class GameArenaRuntime
             .ToHashSet();
 
         var index = 0;
-        while (used.Contains(index))
-        {
-            index++;
-        }
+        while (used.Contains(index)) index++;
 
         return index;
     }
@@ -519,21 +437,13 @@ public sealed class GameArenaRuntime
     {
         scorer = null!;
         var scoringPlayerId = eliminatedPlayer.LastTouchedByPlayerId;
-        if (string.IsNullOrWhiteSpace(scoringPlayerId))
-        {
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(scoringPlayerId)) return false;
 
-        if ((_tick - eliminatedPlayer.LastTouchedTick) > EliminationCreditWindowTicks)
-        {
-            return false;
-        }
+        if (_tick - eliminatedPlayer.LastTouchedTick > EliminationCreditWindowTicks) return false;
 
         if (!_players.TryGetValue(scoringPlayerId, out var candidate) ||
             string.Equals(candidate.PlayerId, eliminatedPlayer.PlayerId, StringComparison.Ordinal))
-        {
             return false;
-        }
 
         scorer = candidate;
         return true;
@@ -594,20 +504,11 @@ public sealed class GameArenaRuntime
 
     private static PlayerLifeState GetLifeState(ConnectedPlayer player)
     {
-        if (!player.Alive)
-        {
-            return PlayerLifeState.Dead;
-        }
+        if (!player.Alive) return PlayerLifeState.Dead;
 
-        if (player.StunRemaining > 0f)
-        {
-            return PlayerLifeState.Stunned;
-        }
+        if (player.StunRemaining > 0f) return PlayerLifeState.Stunned;
 
-        if (player.DashRemaining > 0f)
-        {
-            return PlayerLifeState.Dash;
-        }
+        if (player.DashRemaining > 0f) return PlayerLifeState.Dash;
 
         return LengthSquared(player.Input) > 0.001f ? PlayerLifeState.Move : PlayerLifeState.Idle;
     }
@@ -619,7 +520,7 @@ public sealed class GameArenaRuntime
 
     private static float LengthSquared(Vector2 value)
     {
-        return (value.x * value.x) + (value.y * value.y);
+        return value.x * value.x + value.y * value.y;
     }
 
     private static Vector2 Normalize(Vector2 value)
@@ -627,8 +528,6 @@ public sealed class GameArenaRuntime
         var length = MathF.Sqrt(LengthSquared(value));
         return length <= 0.0001f ? Zero : value / length;
     }
-
-    private static readonly Vector2 Zero = new(0f, 0f);
 
     private static Vector2 GetSpawnPosition(int index)
     {
@@ -711,6 +610,3 @@ public sealed class GameArenaOptions
 {
     public float RespawnDelaySeconds { get; set; } = 5f;
 }
-
-
-

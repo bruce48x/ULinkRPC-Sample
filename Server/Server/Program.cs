@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Orleans;
+using Microsoft.Extensions.Options;
 using Server.Hosting;
 using Server.Orleans;
 using Server.Services;
@@ -17,7 +17,7 @@ builder.Services.AddSingleton<GameArenaRuntime>();
 builder.Services.Configure<GameArenaOptions>(builder.Configuration.GetSection("GameArena"));
 builder.Services.AddSingleton(static sp =>
 {
-    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GameArenaOptions>>();
+    var options = sp.GetRequiredService<IOptions<GameArenaOptions>>();
     return options.Value;
 });
 builder.Services.AddHostedService<GameArenaHostedService>();

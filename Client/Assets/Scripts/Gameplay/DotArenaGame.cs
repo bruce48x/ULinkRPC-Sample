@@ -91,6 +91,7 @@ namespace SampleClient.Gameplay
         private int _lastWorldTick = -1;
         private int _lastLoggedPlayerCount = -1;
         private bool _applicationQuitting;
+        private bool _shutdownStarted;
 
         private async void Start()
         {
@@ -116,19 +117,14 @@ namespace SampleClient.Gameplay
 
         private void OnDestroy()
         {
-            if (!_applicationQuitting)
-            {
-                _cts.Cancel();
-                _ = DisposeConnectionAsync();
-            }
-
+            BeginShutdown();
             _cts.Dispose();
         }
 
         private void OnApplicationQuit()
         {
             _applicationQuitting = true;
-            DisposeConnectionSynchronously();
+            BeginShutdown();
         }
 
         private void OnGUI()
@@ -532,6 +528,18 @@ namespace SampleClient.Gameplay
             Debug.LogWarning($"[DotArena] {_status}");
         }
 
+        private void BeginShutdown()
+        {
+            if (_shutdownStarted)
+            {
+                return;
+            }
+
+            _shutdownStarted = true;
+            _cts.Cancel();
+            _ = DisposeConnectionAsync();
+        }
+
         private async Task DisposeConnectionAsync()
         {
             if (_connection == null) return;
@@ -545,7 +553,7 @@ namespace SampleClient.Gameplay
             {
                 if (shouldLogout)
                 {
-                    await playerService!.LogoutAsync();
+                    await playerService!.LogoutAsync().ConfigureAwait(false);
                 }
             }
             catch
@@ -555,7 +563,7 @@ namespace SampleClient.Gameplay
             try
             {
                 connection.Disconnected -= OnDisconnected;
-                await connection.DisposeAsync();
+                await connection.DisposeAsync().ConfigureAwait(false);
             }
             catch
             {
@@ -565,17 +573,6 @@ namespace SampleClient.Gameplay
                 _playerService = null;
                 _isConnected = false;
                 _localPlayerId = string.Empty;
-            }
-        }
-
-        private void DisposeConnectionSynchronously()
-        {
-            try
-            {
-                DisposeConnectionAsync().GetAwaiter().GetResult();
-            }
-            catch
-            {
             }
         }
 
