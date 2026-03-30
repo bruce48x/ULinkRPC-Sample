@@ -1,5 +1,6 @@
 using Orleans.Contracts.Users;
 using Server.Orleans;
+using Shared.Gameplay;
 using Shared.Interfaces;
 using UnityEngine;
 
@@ -7,17 +8,18 @@ namespace Server.Services;
 
 public sealed class GameArenaRuntime
 {
-    private const float ArenaLimit = 10f;
-    private const float ArenaRespawnInset = 3f;
-    private const float PlayerRadius = 0.9f;
     private const float BaseSpeed = 6f;
     private const float DashSpeed = 12f;
     private const float DashTimeSeconds = 0.3f;
     private const float PushForce = 10f;
     private const float StunTimeSeconds = 0.2f;
     private const int MinPlayersToStart = 2;
+    private const int TargetParticipantCount = 4;
     private const int RestartDelayTicks = 60;
     private const int EliminationCreditWindowTicks = 20;
+    private const string BotPrefix = "AI";
+    private const float BotEdgeAvoidDistance = 2.25f;
+    private const float BotEmergencyEdgeDistance = 1.0f;
     private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(50);
 
     private static readonly Vector2 Zero = new(0f, 0f);
@@ -29,13 +31,16 @@ public sealed class GameArenaRuntime
     private readonly Dictionary<string, PlayerProfile> _profiles = new(StringComparer.Ordinal);
     private readonly float _respawnDelaySeconds;
     private readonly int _respawnDelaySecondsCeiling;
+    private readonly ArenaConfig _arenaConfig;
     private MatchEnd? _pendingMatchEnd;
     private int? _restartAtTick;
     private int _tick;
     private string? _winnerPlayerId;
+    private int _nextBotNumber = 1;
 
     public GameArenaRuntime(GameArenaOptions options)
     {
+        _arenaConfig = options.Arena ?? ArenaConfig.CreateDefault();
         _respawnDelaySeconds = Math.Max(1f, options.RespawnDelaySeconds);
         _respawnDelaySecondsCeiling = (int)MathF.Ceiling(_respawnDelaySeconds);
     }
@@ -77,9 +82,11 @@ public sealed class GameArenaRuntime
                         callback,
                         profile.SpawnIndex,
                         GetSpawnPosition(profile.SpawnIndex),
-                        profile.Score));
+                        profile.Score,
+                        isBot: false));
             }
 
+            RebalanceBotsLocked();
             ResetMatchIfNeededLocked();
             snapshot = CreateWorldStateLocked();
         }
@@ -122,8 +129,16 @@ public sealed class GameArenaRuntime
             _pendingDeaths.RemoveAll(deadEvent =>
                 string.Equals(deadEvent.PlayerId, playerId, StringComparison.Ordinal));
 
-            if (_players.Count == 0)
+            if (player.IsBot)
             {
+                ReleaseBotLocked(player);
+            }
+
+            RebalanceBotsLocked();
+
+            if (HumanPlayerCountLocked() == 0)
+            {
+                RemoveAllBotsLocked();
                 ClearMatchStateLocked();
                 _tick = 0;
                 return ValueTask.CompletedTask;
@@ -168,6 +183,7 @@ public sealed class GameArenaRuntime
 
             if (_players.Count > 0)
             {
+                UpdateBotInputsLocked();
                 SimulatePlayersLocked((float)TickInterval.TotalSeconds);
                 ResolvePushesLocked();
                 ResolveEliminationsLocked();
@@ -237,7 +253,7 @@ public sealed class GameArenaRuntime
             var b = alivePlayers[j];
             var offset = b.Position - a.Position;
             var distance = MathF.Sqrt(LengthSquared(offset));
-            var minDistance = PlayerRadius * 2f;
+            var minDistance = _arenaConfig.PlayerCollisionRadius * 2f;
             if (distance <= 0.0001f || distance >= minDistance) continue;
 
             var direction = offset / distance;
@@ -261,11 +277,14 @@ public sealed class GameArenaRuntime
 
     private void ResolveEliminationsLocked()
     {
+        var botsToRemove = new List<string>();
+
         foreach (var player in _players.Values)
         {
             if (!player.Alive) continue;
 
-            if (MathF.Abs(player.Position.x) > ArenaLimit || MathF.Abs(player.Position.y) > ArenaLimit)
+            if (MathF.Abs(player.Position.x) > _arenaConfig.ArenaHalfExtents.x ||
+                MathF.Abs(player.Position.y) > _arenaConfig.ArenaHalfExtents.y)
             {
                 player.Alive = false;
                 player.State = PlayerLifeState.Dead;
@@ -288,7 +307,17 @@ public sealed class GameArenaRuntime
                     PlayerId = player.PlayerId,
                     Tick = _tick
                 });
+
+                if (player.IsBot && HumanPlayerCountLocked() >= TargetParticipantCount)
+                {
+                    botsToRemove.Add(player.PlayerId);
+                }
             }
+        }
+
+        foreach (var botPlayerId in botsToRemove)
+        {
+            RemoveBotLocked(botPlayerId);
         }
     }
 
@@ -453,11 +482,19 @@ public sealed class GameArenaRuntime
     {
         player.Score = NormalizeScore(player.Score + delta);
         CaptureProfileLocked(player);
-        QueueScoreUpdateLocked(player.PlayerId, player.Score);
+        if (!player.IsBot)
+        {
+            QueueScoreUpdateLocked(player.PlayerId, player.Score);
+        }
     }
 
     private void CaptureProfileLocked(ConnectedPlayer player)
     {
+        if (player.IsBot)
+        {
+            return;
+        }
+
         if (!_profiles.TryGetValue(player.PlayerId, out var profile))
         {
             profile = new PlayerProfile();
@@ -486,7 +523,7 @@ public sealed class GameArenaRuntime
         }
     }
 
-    private static void RespawnPlayerLocked(ConnectedPlayer player)
+    private void RespawnPlayerLocked(ConnectedPlayer player)
     {
         player.Position = GetSpawnPosition(player.SpawnIndex);
         player.Velocity = Zero;
@@ -529,18 +566,20 @@ public sealed class GameArenaRuntime
         return length <= 0.0001f ? Zero : value / length;
     }
 
-    private static Vector2 GetSpawnPosition(int index)
+    private Vector2 GetSpawnPosition(int index)
     {
+        var insetX = MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.x - _arenaConfig.RespawnInset);
+        var insetY = MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.y - _arenaConfig.RespawnInset);
         var points = new[]
         {
-            new Vector2(-ArenaRespawnInset, -ArenaRespawnInset),
-            new Vector2(ArenaRespawnInset, -ArenaRespawnInset),
-            new Vector2(-ArenaRespawnInset, ArenaRespawnInset),
-            new Vector2(ArenaRespawnInset, ArenaRespawnInset),
-            new Vector2(0f, -ArenaRespawnInset),
-            new Vector2(0f, ArenaRespawnInset),
-            new Vector2(-ArenaRespawnInset, 0f),
-            new Vector2(ArenaRespawnInset, 0f)
+            new Vector2(-insetX, -insetY),
+            new Vector2(insetX, -insetY),
+            new Vector2(-insetX, insetY),
+            new Vector2(insetX, insetY),
+            new Vector2(0f, -insetY),
+            new Vector2(0f, insetY),
+            new Vector2(-insetX, 0f),
+            new Vector2(insetX, 0f)
         };
 
         return points[index % points.Length];
@@ -566,6 +605,175 @@ public sealed class GameArenaRuntime
 
     private sealed record ScoreUpdate(string PlayerId, int Score);
 
+    private void UpdateBotInputsLocked()
+    {
+        var alivePlayers = _players.Values.Where(static player => player.Alive).ToArray();
+        foreach (var bot in _players.Values.Where(static player => player.IsBot))
+        {
+            if (!bot.Alive)
+            {
+                bot.Input = Zero;
+                bot.PendingDash = false;
+                continue;
+            }
+
+            var target = alivePlayers
+                .Where(player => !string.Equals(player.PlayerId, bot.PlayerId, StringComparison.Ordinal))
+                .OrderBy(player => LengthSquared(player.Position - bot.Position))
+                .FirstOrDefault();
+
+            var chase = target is null ? -bot.Position : target.Position - bot.Position;
+            if (LengthSquared(chase) <= 0.0001f)
+            {
+                chase = new Vector2(MathF.Sin(_tick * 0.13f + bot.BotNumber), MathF.Cos(_tick * 0.11f + bot.BotNumber));
+            }
+
+            var edgeAvoidance = ComputeBotEdgeAvoidance(bot.Position);
+            var desired = chase + edgeAvoidance;
+            if (LengthSquared(desired) <= 0.0001f)
+            {
+                desired = chase;
+            }
+
+            bot.Input = Normalize(desired);
+            var shouldDash = target is not null &&
+                             LengthSquared(edgeAvoidance) < 0.25f &&
+                             LengthSquared(target.Position - bot.Position) > 9f &&
+                             bot.DashRemaining <= 0f &&
+                             bot.StunRemaining <= 0f &&
+                             (_tick + bot.BotNumber) % 18 == 0;
+            if (shouldDash)
+            {
+                bot.PendingDash = true;
+            }
+
+            bot.LastInputTick = _tick;
+        }
+    }
+
+    private Vector2 ComputeBotEdgeAvoidance(Vector2 position)
+    {
+        var safeLimitX = MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.x - _arenaConfig.PlayerCollisionRadius);
+        var safeLimitY = MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.y - _arenaConfig.PlayerCollisionRadius);
+
+        var avoidance = Zero;
+        avoidance.x = ComputeAxisAvoidance(position.x, safeLimitX);
+        avoidance.y = ComputeAxisAvoidance(position.y, safeLimitY);
+
+        var marginX = safeLimitX - MathF.Abs(position.x);
+        var marginY = safeLimitY - MathF.Abs(position.y);
+        var emergencyMargin = MathF.Min(marginX, marginY);
+
+        if (emergencyMargin < BotEmergencyEdgeDistance)
+        {
+            var toCenter = -position;
+            if (LengthSquared(toCenter) > 0.0001f)
+            {
+                avoidance += Normalize(toCenter) * 2.5f;
+            }
+        }
+
+        return avoidance;
+    }
+
+    private static float ComputeAxisAvoidance(float coordinate, float safeLimit)
+    {
+        var distanceToEdge = safeLimit - MathF.Abs(coordinate);
+        if (distanceToEdge >= BotEdgeAvoidDistance)
+        {
+            return 0f;
+        }
+
+        var directionToCenter = coordinate > 0f ? -1f : 1f;
+        var pressure = 1f - Math.Clamp(distanceToEdge / BotEdgeAvoidDistance, 0f, 1f);
+        return directionToCenter * pressure * pressure * 2f;
+    }
+
+    private void RebalanceBotsLocked()
+    {
+        var humanCount = HumanPlayerCountLocked();
+        var desiredBotCount = Math.Max(0, TargetParticipantCount - humanCount);
+        var currentBotCount = _players.Values.Count(static player => player.IsBot);
+
+        while (currentBotCount < desiredBotCount)
+        {
+            AddBotLocked();
+            currentBotCount++;
+        }
+
+        while (currentBotCount > desiredBotCount)
+        {
+            var removableBot = _players.Values
+                .Where(static player => player.IsBot)
+                .OrderByDescending(static player => player.BotNumber)
+                .FirstOrDefault();
+            if (removableBot is null)
+            {
+                break;
+            }
+
+            RemoveBotLocked(removableBot.PlayerId);
+            currentBotCount--;
+        }
+    }
+
+    private int HumanPlayerCountLocked()
+    {
+        return _players.Values.Count(static player => !player.IsBot);
+    }
+
+    private void AddBotLocked()
+    {
+        var botName = $"{BotPrefix}{_nextBotNumber:D2}";
+        while (_players.ContainsKey(botName))
+        {
+            _nextBotNumber++;
+            botName = $"{BotPrefix}{_nextBotNumber:D2}";
+        }
+
+        var spawnIndex = GetNextSpawnIndexLocked();
+        _players.Add(
+            botName,
+            new ConnectedPlayer(
+                botName,
+                callback: null,
+                spawnIndex,
+                GetSpawnPosition(spawnIndex),
+                score: 1,
+                isBot: true,
+                botNumber: _nextBotNumber));
+        _nextBotNumber++;
+    }
+
+    private void RemoveBotLocked(string playerId)
+    {
+        if (!_players.Remove(playerId, out var bot))
+        {
+            return;
+        }
+
+        ReleaseBotLocked(bot);
+        _pendingDeaths.RemoveAll(deadEvent => string.Equals(deadEvent.PlayerId, playerId, StringComparison.Ordinal));
+    }
+
+    private void RemoveAllBotsLocked()
+    {
+        var botIds = _players.Values
+            .Where(static player => player.IsBot)
+            .Select(static player => player.PlayerId)
+            .ToArray();
+
+        foreach (var botId in botIds)
+        {
+            RemoveBotLocked(botId);
+        }
+    }
+
+    private void ReleaseBotLocked(ConnectedPlayer bot)
+    {
+        _pendingDeaths.RemoveAll(deadEvent => string.Equals(deadEvent.PlayerId, bot.PlayerId, StringComparison.Ordinal));
+    }
+
     private sealed class PlayerProfile
     {
         public int SpawnIndex { get; set; } = -1;
@@ -574,7 +782,7 @@ public sealed class GameArenaRuntime
 
     private sealed class ConnectedPlayer
     {
-        public ConnectedPlayer(string playerId, IPlayerCallback callback, int spawnIndex, Vector2 position, int score)
+        public ConnectedPlayer(string playerId, IPlayerCallback? callback, int spawnIndex, Vector2 position, int score, bool isBot, int botNumber = 0)
         {
             PlayerId = playerId;
             Callback = callback;
@@ -583,11 +791,15 @@ public sealed class GameArenaRuntime
             Score = NormalizeScore(score <= 0 ? 1 : score);
             Alive = true;
             Connected = true;
+            IsBot = isBot;
+            BotNumber = botNumber;
         }
 
         public string PlayerId { get; }
         public IPlayerCallback? Callback { get; set; }
         public int SpawnIndex { get; }
+        public bool IsBot { get; }
+        public int BotNumber { get; }
         public bool Connected { get; set; }
         public Vector2 Position { get; set; }
         public Vector2 Velocity { get; set; }
@@ -609,4 +821,5 @@ public sealed class GameArenaRuntime
 public sealed class GameArenaOptions
 {
     public float RespawnDelaySeconds { get; set; } = 5f;
+    public ArenaConfig Arena { get; set; } = ArenaConfig.CreateDefault();
 }

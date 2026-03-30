@@ -12,6 +12,7 @@ Thumbs.db
 **/bin/
 **/obj/
 /_artifacts/
+/.dotnet/
 
 # Unity generated folders
 /Client/[Ll]ibrary/

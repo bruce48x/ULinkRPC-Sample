@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Shared.Gameplay;
 using Shared.Interfaces;
 using ULinkRPC.Client;
 using UnityEngine;
@@ -25,16 +26,13 @@ namespace SampleClient.Gameplay
 
     public sealed class DotArenaGame : MonoBehaviour, IPlayerCallback
     {
-        private const int WindowWidth = 1600;
-        private const int WindowHeight = 800;
-        private const float ArenaHalfSize = 10f;
+        private const int WindowWidth = 1200;
+        private const int WindowHeight = 600;
         private const float ArenaVisualPadding = 1.8f;
-        // Keep this aligned with the server-side collision radius in GameArenaRuntime.
-        private const float PlayerRadius = 0.9f;
-        private const float PlayerDiameter = PlayerRadius * 2f;
         private const float PlayerNameOffsetY = 0.1f;
         private const float PlayerScoreOffsetY = -0.14f;
         private const int PlayerSortingOrder = 20;
+        private const int PlayerOutlineSortingOrder = 25;
         private const int PlayerTextSortingOrder = 30;
         private const float PlayerTextDepth = -0.2f;
         private const float PlayerNameScale = 0.12f;
@@ -48,6 +46,8 @@ namespace SampleClient.Gameplay
         private static readonly Color GridColor = new(0.75f, 0.86f, 0.94f, 0.1f);
         private static readonly Color BorderColor = new(1f, 0.84f, 0.31f, 0.24f);
         private static readonly Color DangerColor = new(1f, 0.24f, 0.24f, 0.08f);
+        private static readonly Color PlayerOutlineColor = new(1f, 1f, 1f, 0.92f);
+        private static readonly ArenaConfig GameplayConfig = ArenaConfig.CreateDefault();
 
         private static readonly Color[] RemotePalette =
         {
@@ -85,6 +85,7 @@ namespace SampleClient.Gameplay
 
         private Sprite _pixelSprite = null!;
         private Sprite _playerSprite = null!;
+        private Sprite _playerOutlineSprite = null!;
         private string _status = "Connecting...";
         private string _eventMessage = "等待玩家加入";
         private float _eventMessageUntil;
@@ -189,7 +190,7 @@ namespace SampleClient.Gameplay
             }
 
             var pixelsPerWorldUnit = Screen.height / (camera.orthographicSize * 2f);
-            var diameterPixels = PlayerDiameter * pixelsPerWorldUnit;
+            var diameterPixels = PlayerVisualDiameter * pixelsPerWorldUnit;
             var labelWidth = Mathf.Max(96f, diameterPixels * 2f);
             var nameHeight = Mathf.Max(18f, diameterPixels * 0.36f);
             var scoreHeight = Mathf.Max(16f, diameterPixels * 0.3f);
@@ -590,7 +591,7 @@ namespace SampleClient.Gameplay
             }
 
             mainCamera.orthographic = true;
-            mainCamera.orthographicSize = ArenaHalfSize + ArenaVisualPadding;
+            mainCamera.orthographicSize = Mathf.Max(ArenaHalfWidth, ArenaHalfHeight) + ArenaVisualPadding;
             mainCamera.backgroundColor = BackgroundColor;
             mainCamera.clearFlags = CameraClearFlags.SolidColor;
             mainCamera.transform.position = new Vector3(0f, 0f, -10f);
@@ -668,32 +669,33 @@ namespace SampleClient.Gameplay
         {
             _pixelSprite = CreatePixelSprite();
             _playerSprite = CreateCircleSprite();
+            _playerOutlineSprite = CreateCircleOutlineSprite();
 
             var arenaRoot = new GameObject("ArenaRoot");
             arenaRoot.transform.SetParent(transform, false);
 
             CreateRect(arenaRoot.transform, "DangerZone", Vector2.zero,
-                new Vector2((ArenaHalfSize + 1f) * 2f, (ArenaHalfSize + 1f) * 2f), DangerColor, -30);
+                new Vector2((ArenaHalfWidth + 1f) * 2f, (ArenaHalfHeight + 1f) * 2f), DangerColor, -30);
 
-            CreateRect(arenaRoot.transform, "Board", Vector2.zero, new Vector2(ArenaHalfSize * 2f, ArenaHalfSize * 2f),
+            CreateRect(arenaRoot.transform, "Board", Vector2.zero, new Vector2(ArenaHalfWidth * 2f, ArenaHalfHeight * 2f),
                 BoardColor, -20);
 
             for (var i = -8; i <= 8; i += 2)
             {
                 CreateRect(arenaRoot.transform, $"Vertical-{i}", new Vector2(i, 0f),
-                    new Vector2(0.05f, ArenaHalfSize * 2f), GridColor, -10);
+                    new Vector2(0.05f, ArenaHalfHeight * 2f), GridColor, -10);
                 CreateRect(arenaRoot.transform, $"Horizontal-{i}", new Vector2(0f, i),
-                    new Vector2(ArenaHalfSize * 2f, 0.05f), GridColor, -10);
+                    new Vector2(ArenaHalfWidth * 2f, 0.05f), GridColor, -10);
             }
 
-            CreateRect(arenaRoot.transform, "TopBorder", new Vector2(0f, ArenaHalfSize),
-                new Vector2(ArenaHalfSize * 2f + 0.18f, 0.18f), BorderColor, -5);
-            CreateRect(arenaRoot.transform, "BottomBorder", new Vector2(0f, -ArenaHalfSize),
-                new Vector2(ArenaHalfSize * 2f + 0.18f, 0.18f), BorderColor, -5);
-            CreateRect(arenaRoot.transform, "LeftBorder", new Vector2(-ArenaHalfSize, 0f),
-                new Vector2(0.18f, ArenaHalfSize * 2f + 0.18f), BorderColor, -5);
-            CreateRect(arenaRoot.transform, "RightBorder", new Vector2(ArenaHalfSize, 0f),
-                new Vector2(0.18f, ArenaHalfSize * 2f + 0.18f), BorderColor, -5);
+            CreateRect(arenaRoot.transform, "TopBorder", new Vector2(0f, ArenaHalfHeight),
+                new Vector2(ArenaHalfWidth * 2f + 0.18f, 0.18f), BorderColor, -5);
+            CreateRect(arenaRoot.transform, "BottomBorder", new Vector2(0f, -ArenaHalfHeight),
+                new Vector2(ArenaHalfWidth * 2f + 0.18f, 0.18f), BorderColor, -5);
+            CreateRect(arenaRoot.transform, "LeftBorder", new Vector2(-ArenaHalfWidth, 0f),
+                new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
+            CreateRect(arenaRoot.transform, "RightBorder", new Vector2(ArenaHalfWidth, 0f),
+                new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
         }
 
         private Vector2 ReadMoveVector()
@@ -719,6 +721,14 @@ namespace SampleClient.Gameplay
             renderer.sprite = _playerSprite;
             renderer.color = ResolveColor(playerId);
             renderer.sortingOrder = PlayerSortingOrder;
+
+            var outlineObject = new GameObject("Outline");
+            outlineObject.transform.SetParent(viewRoot.transform, false);
+            outlineObject.transform.localPosition = new Vector3(0f, 0f, -0.01f);
+            var outlineRenderer = outlineObject.AddComponent<SpriteRenderer>();
+            outlineRenderer.sprite = _playerOutlineSprite;
+            outlineRenderer.color = PlayerOutlineColor;
+            outlineRenderer.sortingOrder = PlayerOutlineSortingOrder;
 
             var nameLabel = new GameObject("NameLabel");
             nameLabel.transform.SetParent(viewRoot.transform, false);
@@ -750,7 +760,7 @@ namespace SampleClient.Gameplay
             scoreText.color = new Color(1f, 0.97f, 0.78f, 0.95f);
             ConfigureTextRenderer(scoreText.GetComponent<MeshRenderer>(), PlayerTextSortingOrder);
 
-            var view = new DotView(viewRoot, renderer, nameText, scoreText);
+            var view = new DotView(viewRoot, renderer, outlineRenderer, nameText, scoreText);
             view.SetIdentity(playerId, 1);
             view.ApplyPresentation(ResolveColor(playerId), PlayerLifeState.Idle, true);
             return view;
@@ -870,7 +880,7 @@ namespace SampleClient.Gameplay
 
         private static Sprite CreateCircleSprite()
         {
-            const int textureSize = 64;
+            const int textureSize = 128;
             var texture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Bilinear,
@@ -879,8 +889,7 @@ namespace SampleClient.Gameplay
             };
 
             var center = (textureSize - 1) * 0.5f;
-            var radius = textureSize * 0.5f;
-            var edgeSoftness = 1.25f;
+            var radius = center - 0.5f;
 
             for (var y = 0; y < textureSize; y++)
             {
@@ -889,7 +898,46 @@ namespace SampleClient.Gameplay
                     var dx = x - center;
                     var dy = y - center;
                     var distance = Mathf.Sqrt((dx * dx) + (dy * dy));
-                    var alpha = Mathf.Clamp01((radius - distance) / edgeSoftness);
+                    var alpha = Mathf.Clamp01(radius - distance);
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+
+            texture.Apply();
+
+            return Sprite.Create(
+                texture,
+                new Rect(0f, 0f, textureSize, textureSize),
+                new Vector2(0.5f, 0.5f),
+                textureSize);
+        }
+
+        private static Sprite CreateCircleOutlineSprite()
+        {
+            const int textureSize = 128;
+            const float outlineWidthPixels = 2.25f;
+
+            var texture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+
+            var center = (textureSize - 1) * 0.5f;
+            var radius = center - 0.5f;
+            var innerRadius = radius - outlineWidthPixels;
+
+            for (var y = 0; y < textureSize; y++)
+            {
+                for (var x = 0; x < textureSize; x++)
+                {
+                    var dx = x - center;
+                    var dy = y - center;
+                    var distance = Mathf.Sqrt((dx * dx) + (dy * dy));
+                    var outerAlpha = Mathf.Clamp01(radius - distance);
+                    var innerAlpha = Mathf.Clamp01(innerRadius - distance);
+                    var alpha = Mathf.Clamp01(outerAlpha - innerAlpha);
                     texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
                 }
             }
@@ -923,6 +971,12 @@ namespace SampleClient.Gameplay
             return score.ToString();
         }
 
+        private static float ArenaHalfWidth => GameplayConfig.ArenaHalfExtents.x;
+
+        private static float ArenaHalfHeight => GameplayConfig.ArenaHalfExtents.y;
+
+        private static float PlayerVisualDiameter => GameplayConfig.PlayerVisualRadius * 2f;
+
         private sealed class PlayerRenderState
         {
             public Vector2 PreviousPosition { get; set; }
@@ -936,13 +990,15 @@ namespace SampleClient.Gameplay
         private sealed class DotView
         {
             private readonly SpriteRenderer _renderer;
+            private readonly SpriteRenderer _outlineRenderer;
             private readonly TextMesh _nameText;
             private readonly TextMesh _scoreText;
 
-            public DotView(GameObject root, SpriteRenderer renderer, TextMesh nameText, TextMesh scoreText)
+            public DotView(GameObject root, SpriteRenderer renderer, SpriteRenderer outlineRenderer, TextMesh nameText, TextMesh scoreText)
             {
                 Root = root;
                 _renderer = renderer;
+                _outlineRenderer = outlineRenderer;
                 _nameText = nameText;
                 _scoreText = scoreText;
             }
@@ -983,7 +1039,10 @@ namespace SampleClient.Gameplay
                 }
 
                 _renderer.color = color;
-                Root.transform.localScale = new Vector3(PlayerDiameter, PlayerDiameter, 1f);
+                _outlineRenderer.color = alive
+                    ? PlayerOutlineColor
+                    : new Color(PlayerOutlineColor.r, PlayerOutlineColor.g, PlayerOutlineColor.b, 0.45f);
+                Root.transform.localScale = new Vector3(PlayerVisualDiameter, PlayerVisualDiameter, 1f);
             }
         }
     }
