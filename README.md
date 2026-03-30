@@ -57,6 +57,21 @@ Restart
 - 旋转锤	测碰撞
 - 弹跳板	欢乐效果
 - 随机掉落地板	增加紧张感
+- 随机 buff 球	提升对局变数
+
+## 新增 buff 玩法
+
+地图上会随机刷新两种不同的小球，玩家触碰后立刻获得对应增益：
+
+- **加速**：移动速度提升 `50%`，持续 `10 秒`
+- **冲击力**：把其他玩家撞飞的距离提升 `50%`，持续 `5 秒`
+
+规则说明：
+
+- 两种球会在场地内随机位置刷新
+- 同类球被吃掉后会在短暂冷却后再次随机刷新
+- 玩家死亡或重生时，当前 buff 会被清空
+- buff 效果可叠加存在，例如同时拥有加速与重击
 
 # 三、核心系统结构
 
@@ -71,6 +86,8 @@ Player
  ├ velocity
  ├ state
  ├ alive
+ ├ speedBuffRemaining
+ ├ knockbackBuffRemaining
 ```
 
 状态机：
@@ -87,6 +104,8 @@ speed = 6
 dashSpeed = 12
 dashTime = 0.3s
 pushForce = 10
+speedBuff = +50% / 10s
+knockbackBuff = +50% / 5s
 ```
 
 ## 2 输入系统（Input）
@@ -122,6 +141,20 @@ Dash：`velocity = direction * dashSpeed`
 冲刺时：
 - 推力更大
 - 碰撞效果更明显
+
+### Buff 球机制
+服务器维护两个随机刷新的 pickup：
+
+```txt
+SpeedBoostPickup
+KnockbackBoostPickup
+```
+
+玩家触碰 pickup 后：
+
+- 服务器立即应用 buff
+- pickup 消失并进入随机重生冷却
+- 新状态跟随 WorldState 一并广播
 ## 4 淘汰系统（Elimination）
 服务器检查：
 ```txt
@@ -181,6 +214,7 @@ WorldState
 {
     tick
     players[]
+    pickups[]
 }
 ```
 玩家结构：
@@ -192,6 +226,17 @@ PlayerState
     y
     vx
     vy
+    speedBuffRemainingSeconds
+    knockbackBuffRemainingSeconds
+}
+```
+地图道具结构：
+```txt
+PickupState
+{
+    type
+    x
+    y
 }
 ```
 频率：`10~20 Hz`

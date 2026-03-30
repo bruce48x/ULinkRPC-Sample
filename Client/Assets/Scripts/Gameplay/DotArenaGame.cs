@@ -31,12 +31,17 @@ namespace SampleClient.Gameplay
         private const float ArenaVisualPadding = 1.8f;
         private const float PlayerNameOffsetY = 0.1f;
         private const float PlayerScoreOffsetY = -0.14f;
+        private const float PickupPulseAmplitude = 0.08f;
+        private const float PickupPulseFrequency = 3.2f;
         private const int PlayerSortingOrder = 20;
         private const int PlayerOutlineSortingOrder = 25;
         private const int PlayerTextSortingOrder = 30;
+        private const int PickupSortingOrder = 12;
+        private const int PickupLabelSortingOrder = 14;
         private const float PlayerTextDepth = -0.2f;
         private const float PlayerNameScale = 0.12f;
         private const float PlayerScoreScale = 0.1f;
+        private const float PickupLabelScale = 0.45f;
         private const float PlayerTextCharacterSize = 0.08f;
         private const float InputSendIntervalSeconds = 0.05f;
         private const float InterpolationDurationSeconds = 0.1f;
@@ -47,6 +52,8 @@ namespace SampleClient.Gameplay
         private static readonly Color BorderColor = new(1f, 0.84f, 0.31f, 0.24f);
         private static readonly Color DangerColor = new(1f, 0.24f, 0.24f, 0.08f);
         private static readonly Color PlayerOutlineColor = new(1f, 1f, 1f, 0.92f);
+        private static readonly Color SpeedPickupColor = new(1f, 0.86f, 0.22f, 0.95f);
+        private static readonly Color KnockbackPickupColor = new(1f, 0.22f, 0.22f, 0.95f);
         private static readonly ArenaConfig GameplayConfig = ArenaConfig.CreateDefault();
 
         private static readonly Color[] RemotePalette =
@@ -69,6 +76,7 @@ namespace SampleClient.Gameplay
         private readonly object _callbackLock = new();
         private readonly Dictionary<string, DotView> _views = new(StringComparer.Ordinal);
         private readonly Dictionary<string, PlayerRenderState> _renderStates = new(StringComparer.Ordinal);
+        private readonly Dictionary<PickupType, PickupView> _pickupViews = new();
 
         private RpcClient? _connection;
         private IPlayerService? _playerService;
@@ -159,7 +167,7 @@ namespace SampleClient.Gameplay
             GUI.Label(new Rect(contentRect.x, contentRect.y + 44f, contentRect.width, 18f),
                 $"玩家: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   积分: {GetLocalPlayerScoreText()}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 64f, contentRect.width, 18f),
-                $"服务端 Tick: {_lastWorldTick}   同步人数: {_views.Count}", bodyStyle);
+                $"服务端 Tick: {_lastWorldTick}   同步人数: {_views.Count}   Buff: {GetLocalPlayerBuffText()}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 84f, contentRect.width, 18f),
                 $"地址: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}", bodyStyle);
 
@@ -410,9 +418,26 @@ namespace SampleClient.Gameplay
                 renderState.Alive = player.Alive;
                 renderState.State = player.State;
                 renderState.Score = player.Score;
+                var previousSpeedBuff = renderState.SpeedBoostRemainingSeconds;
+                var previousKnockbackBuff = renderState.KnockbackBoostRemainingSeconds;
+                renderState.SpeedBoostRemainingSeconds = player.SpeedBoostRemainingSeconds;
+                renderState.KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds;
 
                 view.SetIdentity(player.PlayerId, player.Score);
-                view.ApplyPresentation(ResolveColor(player.PlayerId), player.State, player.Alive);
+                view.ApplyPresentation(ResolveColor(player.PlayerId), player.State, player.Alive,
+                    player.SpeedBoostRemainingSeconds > 0, player.KnockbackBoostRemainingSeconds > 0);
+                if (player.PlayerId == _localPlayerId)
+                {
+                    if (previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0)
+                    {
+                        PushEvent($"拾取{GetPickupDisplayName(PickupType.SpeedBoost)}: 移速提升 50%，持续 10 秒");
+                    }
+
+                    if (previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0)
+                    {
+                        PushEvent($"拾取{GetPickupDisplayName(PickupType.KnockbackBoost)}: 撞飞增强 50%，持续 5 秒");
+                    }
+                }
                 if (_views.Count >= 2 && worldState.Players.Exists(static p => p.Alive))
                 {
                     _eventMessage = "对局进行中";
@@ -434,6 +459,8 @@ namespace SampleClient.Gameplay
                 _views.Remove(removedId);
                 _renderStates.Remove(removedId);
             }
+
+            ApplyPickupState(worldState);
         }
 
         private void HandleDeadEvent(PlayerDead deadEvent)
@@ -446,7 +473,7 @@ namespace SampleClient.Gameplay
 
             if (_views.TryGetValue(deadEvent.PlayerId, out var view))
             {
-                view.ApplyPresentation(ResolveColor(deadEvent.PlayerId), PlayerLifeState.Dead, false);
+                view.ApplyPresentation(ResolveColor(deadEvent.PlayerId), PlayerLifeState.Dead, false, false, false);
             }
 
             PushEvent(deadEvent.PlayerId == _localPlayerId
@@ -474,6 +501,13 @@ namespace SampleClient.Gameplay
                 var smoothed = elapsed * elapsed * (3f - (2f * elapsed));
                 var position = Vector2.Lerp(renderState.PreviousPosition, renderState.TargetPosition, smoothed);
                 entry.Value.SetPosition(position);
+            }
+
+            var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
+            foreach (var pickupView in _pickupViews.Values)
+            {
+                var pulse = 1f + (Mathf.Sin(Time.time * PickupPulseFrequency) * PickupPulseAmplitude);
+                pickupView.Root.transform.localScale = new Vector3(pickupScale * pulse, pickupScale * pulse, 1f);
             }
         }
 
@@ -698,6 +732,31 @@ namespace SampleClient.Gameplay
                 new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
         }
 
+        private void ApplyPickupState(WorldState worldState)
+        {
+            var activeTypes = new HashSet<PickupType>();
+            foreach (var pickup in worldState.Pickups)
+            {
+                activeTypes.Add(pickup.Type);
+                if (!_pickupViews.TryGetValue(pickup.Type, out var view))
+                {
+                    view = CreatePickupView(pickup.Type);
+                    _pickupViews.Add(pickup.Type, view);
+                }
+
+                view.Root.SetActive(true);
+                view.Root.transform.position = new Vector3(pickup.X, pickup.Y, 0f);
+            }
+
+            foreach (var entry in _pickupViews)
+            {
+                if (!activeTypes.Contains(entry.Key))
+                {
+                    entry.Value.Root.SetActive(false);
+                }
+            }
+        }
+
         private Vector2 ReadMoveVector()
         {
             var x = 0f;
@@ -762,7 +821,7 @@ namespace SampleClient.Gameplay
 
             var view = new DotView(viewRoot, renderer, outlineRenderer, nameText, scoreText);
             view.SetIdentity(playerId, 1);
-            view.ApplyPresentation(ResolveColor(playerId), PlayerLifeState.Idle, true);
+            view.ApplyPresentation(ResolveColor(playerId), PlayerLifeState.Idle, true, false, false);
             return view;
         }
 
@@ -784,6 +843,44 @@ namespace SampleClient.Gameplay
             renderer.sprite = _pixelSprite;
             renderer.color = color;
             renderer.sortingOrder = sortingOrder;
+        }
+
+        private PickupView CreatePickupView(PickupType pickupType)
+        {
+            var pickupRoot = new GameObject($"{pickupType}Pickup");
+            pickupRoot.transform.SetParent(transform, false);
+
+            var renderer = pickupRoot.AddComponent<SpriteRenderer>();
+            renderer.sprite = _playerSprite;
+            renderer.color = GetPickupColor(pickupType);
+            renderer.sortingOrder = PickupSortingOrder;
+
+            var glow = new GameObject("Glow");
+            glow.transform.SetParent(pickupRoot.transform, false);
+            glow.transform.localPosition = new Vector3(0f, 0f, 0.01f);
+
+            var glowRenderer = glow.AddComponent<SpriteRenderer>();
+            glowRenderer.sprite = _playerOutlineSprite;
+            glowRenderer.color = Color.Lerp(GetPickupColor(pickupType), Color.white, 0.35f);
+            glowRenderer.sortingOrder = PickupSortingOrder - 1;
+
+            var label = new GameObject("Label");
+            label.transform.SetParent(pickupRoot.transform, false);
+            label.transform.localPosition = new Vector3(0f, 0f, PlayerTextDepth);
+            label.transform.localScale = Vector3.one * PickupLabelScale;
+
+            var labelText = label.AddComponent<TextMesh>();
+            labelText.text = GetPickupDisplayName(pickupType);
+            labelText.fontSize = 64;
+            labelText.characterSize = 0.12f;
+            labelText.anchor = TextAnchor.MiddleCenter;
+            labelText.alignment = TextAlignment.Center;
+            labelText.fontStyle = FontStyle.Bold;
+            labelText.color = GetPickupLabelColor(pickupType);
+            ConfigureTextRenderer(labelText.GetComponent<MeshRenderer>(), PickupLabelSortingOrder);
+
+            pickupRoot.SetActive(false);
+            return new PickupView(pickupRoot, renderer, glowRenderer, labelText);
         }
 
         private static void ConfigureTextRenderer(MeshRenderer? renderer, int sortingOrder)
@@ -810,6 +907,27 @@ namespace SampleClient.Gameplay
             return _renderStates.TryGetValue(_localPlayerId, out var renderState)
                 ? FormatScore(renderState.Score)
                 : "0";
+        }
+
+        private string GetLocalPlayerBuffText()
+        {
+            if (_localPlayerId.Length == 0 || !_renderStates.TryGetValue(_localPlayerId, out var renderState))
+            {
+                return "无";
+            }
+
+            var parts = new List<string>(2);
+            if (renderState.SpeedBoostRemainingSeconds > 0)
+            {
+                parts.Add($"{GetPickupDisplayName(PickupType.SpeedBoost)} {renderState.SpeedBoostRemainingSeconds}s");
+            }
+
+            if (renderState.KnockbackBoostRemainingSeconds > 0)
+            {
+                parts.Add($"{GetPickupDisplayName(PickupType.KnockbackBoost)} {renderState.KnockbackBoostRemainingSeconds}s");
+            }
+
+            return parts.Count == 0 ? "无" : string.Join(" / ", parts);
         }
 
         private string GetCurrentEventMessage()
@@ -856,7 +974,19 @@ namespace SampleClient.Gameplay
                     State = player.State,
                     Alive = player.Alive,
                     RespawnRemainingSeconds = player.RespawnRemainingSeconds,
-                    Score = player.Score
+                    Score = player.Score,
+                    SpeedBoostRemainingSeconds = player.SpeedBoostRemainingSeconds,
+                    KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds
+                });
+            }
+
+            foreach (var pickup in source.Pickups)
+            {
+                clone.Pickups.Add(new PickupState
+                {
+                    Type = pickup.Type,
+                    X = pickup.X,
+                    Y = pickup.Y
                 });
             }
 
@@ -971,6 +1101,33 @@ namespace SampleClient.Gameplay
             return score.ToString();
         }
 
+        private static Color GetPickupColor(PickupType pickupType)
+        {
+            return pickupType switch
+            {
+                PickupType.SpeedBoost => SpeedPickupColor,
+                PickupType.KnockbackBoost => KnockbackPickupColor,
+                _ => Color.white
+            };
+        }
+
+        private static string GetPickupDisplayName(PickupType pickupType)
+        {
+            return pickupType switch
+            {
+                PickupType.SpeedBoost => "加速",
+                PickupType.KnockbackBoost => "冲击力",
+                _ => "Buff"
+            };
+        }
+
+        private static Color GetPickupLabelColor(PickupType pickupType)
+        {
+            var color = GetPickupColor(pickupType);
+            var luminance = (color.r * 0.299f) + (color.g * 0.587f) + (color.b * 0.114f);
+            return luminance >= 0.6f ? Color.black : Color.white;
+        }
+
         private static float ArenaHalfWidth => GameplayConfig.ArenaHalfExtents.x;
 
         private static float ArenaHalfHeight => GameplayConfig.ArenaHalfExtents.y;
@@ -985,6 +1142,8 @@ namespace SampleClient.Gameplay
             public PlayerLifeState State { get; set; }
             public bool Alive { get; set; }
             public int Score { get; set; }
+            public int SpeedBoostRemainingSeconds { get; set; }
+            public int KnockbackBoostRemainingSeconds { get; set; }
         }
 
         private sealed class DotView
@@ -1022,7 +1181,7 @@ namespace SampleClient.Gameplay
                 _scoreText.text = FormatScore(score);
             }
 
-            public void ApplyPresentation(Color baseColor, PlayerLifeState state, bool alive)
+            public void ApplyPresentation(Color baseColor, PlayerLifeState state, bool alive, bool hasSpeedBoost, bool hasKnockbackBoost)
             {
                 var color = baseColor;
                 if (!alive)
@@ -1038,12 +1197,39 @@ namespace SampleClient.Gameplay
                     color = Color.Lerp(baseColor, new Color(1f, 0.9f, 0.45f, 1f), 0.45f);
                 }
 
+                if (hasSpeedBoost)
+                {
+                    color = Color.Lerp(color, SpeedPickupColor, 0.28f);
+                }
+
+                if (hasKnockbackBoost)
+                {
+                    color = Color.Lerp(color, KnockbackPickupColor, 0.33f);
+                }
+
                 _renderer.color = color;
                 _outlineRenderer.color = alive
                     ? PlayerOutlineColor
                     : new Color(PlayerOutlineColor.r, PlayerOutlineColor.g, PlayerOutlineColor.b, 0.45f);
-                Root.transform.localScale = new Vector3(PlayerVisualDiameter, PlayerVisualDiameter, 1f);
+                var scaleBoost = hasSpeedBoost || hasKnockbackBoost ? 1.08f : 1f;
+                Root.transform.localScale = new Vector3(PlayerVisualDiameter * scaleBoost, PlayerVisualDiameter * scaleBoost, 1f);
             }
+        }
+
+        private sealed class PickupView
+        {
+            public PickupView(GameObject root, SpriteRenderer renderer, SpriteRenderer glowRenderer, TextMesh labelText)
+            {
+                Root = root;
+                Renderer = renderer;
+                GlowRenderer = glowRenderer;
+                LabelText = labelText;
+            }
+
+            public GameObject Root { get; }
+            public SpriteRenderer Renderer { get; }
+            public SpriteRenderer GlowRenderer { get; }
+            public TextMesh LabelText { get; }
         }
     }
 }

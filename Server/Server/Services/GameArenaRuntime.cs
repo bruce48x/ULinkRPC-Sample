@@ -9,10 +9,16 @@ namespace Server.Services;
 public sealed class GameArenaRuntime
 {
     private const float BaseSpeed = 6f;
+    private const float SpeedBoostMultiplier = 1.5f;
+    private const float SpeedBoostDurationSeconds = 10f;
     private const float DashSpeed = 12f;
     private const float DashTimeSeconds = 0.3f;
     private const float PushForce = 10f;
+    private const float KnockbackBoostMultiplier = 3f;
+    private const float KnockbackBoostDurationSeconds = 5f;
     private const float StunTimeSeconds = 0.2f;
+    private const float PickupRespawnMinSeconds = 2f;
+    private const float PickupRespawnMaxSeconds = 5f;
     private const int MinPlayersToStart = 2;
     private const int TargetParticipantCount = 4;
     private const int RestartDelayTicks = 60;
@@ -21,6 +27,10 @@ public sealed class GameArenaRuntime
     private const float BotEdgeAvoidDistance = 2.25f;
     private const float BotEmergencyEdgeDistance = 1.0f;
     private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(50);
+    private static readonly PickupType[] EnabledPickupTypes =
+    {
+        PickupType.KnockbackBoost
+    };
 
     private static readonly Vector2 Zero = new(0f, 0f);
 
@@ -29,6 +39,7 @@ public sealed class GameArenaRuntime
     private readonly List<ScoreUpdate> _pendingScoreUpdates = new();
     private readonly Dictionary<string, ConnectedPlayer> _players = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlayerProfile> _profiles = new(StringComparer.Ordinal);
+    private readonly Dictionary<PickupType, ArenaPickup> _pickups = new();
     private readonly float _respawnDelaySeconds;
     private readonly int _respawnDelaySecondsCeiling;
     private readonly ArenaConfig _arenaConfig;
@@ -185,7 +196,9 @@ public sealed class GameArenaRuntime
             {
                 UpdateBotInputsLocked();
                 SimulatePlayersLocked((float)TickInterval.TotalSeconds);
+                UpdatePickupsLocked((float)TickInterval.TotalSeconds);
                 ResolvePushesLocked();
+                ResolvePickupCollectionsLocked();
                 ResolveEliminationsLocked();
                 ResolveMatchLifecycleLocked();
             }
@@ -215,6 +228,12 @@ public sealed class GameArenaRuntime
 
             if (player.DashRemaining > 0f) player.DashRemaining = MathF.Max(0f, player.DashRemaining - deltaTime);
 
+            if (player.SpeedBoostRemaining > 0f)
+                player.SpeedBoostRemaining = MathF.Max(0f, player.SpeedBoostRemaining - deltaTime);
+
+            if (player.KnockbackBoostRemaining > 0f)
+                player.KnockbackBoostRemaining = MathF.Max(0f, player.KnockbackBoostRemaining - deltaTime);
+
             var desired = player.Input;
             if (LengthSquared(desired) > 1f) desired = Normalize(desired);
 
@@ -235,11 +254,39 @@ public sealed class GameArenaRuntime
             else if (player.DashRemaining > 0f)
                 player.Velocity = player.DashDirection * DashSpeed;
             else if (LengthSquared(desired) > 0f)
-                player.Velocity = desired * BaseSpeed;
+                player.Velocity = desired * GetMoveSpeed(player);
             else
                 player.Velocity = Zero;
 
             player.Position += player.Velocity * deltaTime;
+        }
+    }
+
+    private void UpdatePickupsLocked(float deltaTime)
+    {
+        foreach (var pickupType in EnabledPickupTypes)
+        {
+            if (!_pickups.TryGetValue(pickupType, out var pickup))
+            {
+                pickup = new ArenaPickup(pickupType);
+                _pickups.Add(pickupType, pickup);
+                pickup.RespawnRemaining = NextPickupRespawnDelaySeconds();
+            }
+
+            if (pickup.Active)
+            {
+                continue;
+            }
+
+            pickup.RespawnRemaining = MathF.Max(0f, pickup.RespawnRemaining - deltaTime);
+            if (pickup.RespawnRemaining > 0f)
+            {
+                continue;
+            }
+
+            pickup.Position = GetRandomPickupPositionLocked();
+            pickup.Active = true;
+            pickup.RespawnRemaining = 0f;
         }
     }
 
@@ -262,16 +309,52 @@ public sealed class GameArenaRuntime
             a.Position -= separation;
             b.Position += separation;
 
-            var pushScale = a.DashRemaining > 0f || b.DashRemaining > 0f ? 1.75f : 1f;
-            var impulse = direction * (PushForce * pushScale);
-            a.Velocity -= impulse;
-            b.Velocity += impulse;
+            var pushFromA = direction * (PushForce * GetPushScale(a));
+            var pushFromB = direction * (PushForce * GetPushScale(b));
+            a.Velocity -= pushFromB;
+            b.Velocity += pushFromA;
             a.StunRemaining = MathF.Max(a.StunRemaining, StunTimeSeconds);
             b.StunRemaining = MathF.Max(b.StunRemaining, StunTimeSeconds);
             a.LastTouchedByPlayerId = b.PlayerId;
             a.LastTouchedTick = _tick;
             b.LastTouchedByPlayerId = a.PlayerId;
             b.LastTouchedTick = _tick;
+        }
+    }
+
+    private void ResolvePickupCollectionsLocked()
+    {
+        if (_pickups.Count == 0)
+        {
+            return;
+        }
+
+        var collectionDistance = _arenaConfig.PlayerCollisionRadius + _arenaConfig.PickupCollisionRadius;
+        var collectionDistanceSquared = collectionDistance * collectionDistance;
+
+        foreach (var player in _players.Values)
+        {
+            if (!player.Alive)
+            {
+                continue;
+            }
+
+            foreach (var pickup in _pickups.Values)
+            {
+                if (!pickup.Active)
+                {
+                    continue;
+                }
+
+                if (LengthSquared(player.Position - pickup.Position) > collectionDistanceSquared)
+                {
+                    continue;
+                }
+
+                ApplyPickupLocked(player, pickup.Type);
+                pickup.Active = false;
+                pickup.RespawnRemaining = NextPickupRespawnDelaySeconds();
+            }
         }
     }
 
@@ -295,6 +378,8 @@ public sealed class GameArenaRuntime
                 player.StunRemaining = 0f;
                 player.PendingDash = false;
                 player.RespawnRemaining = _respawnDelaySeconds;
+                player.SpeedBoostRemaining = 0f;
+                player.KnockbackBoostRemaining = 0f;
 
                 if (TryGetScoringPlayerLocked(player, out var scorer)) AdjustScoreLocked(scorer, 1);
 
@@ -388,8 +473,20 @@ public sealed class GameArenaRuntime
                 State = GetLifeState(player),
                 Alive = player.Alive,
                 RespawnRemainingSeconds = player.Alive ? 0 : (int)MathF.Ceiling(player.RespawnRemaining),
-                Score = player.Score
+                Score = player.Score,
+                SpeedBoostRemainingSeconds = (int)MathF.Ceiling(player.SpeedBoostRemaining),
+                KnockbackBoostRemainingSeconds = (int)MathF.Ceiling(player.KnockbackBoostRemaining)
             });
+
+        foreach (var pickup in _pickups.Values.Where(static pickup => pickup.Active).OrderBy(static pickup => pickup.Type))
+        {
+            state.Pickups.Add(new PickupState
+            {
+                Type = pickup.Type,
+                X = pickup.Position.x,
+                Y = pickup.Position.y
+            });
+        }
 
         return state;
     }
@@ -432,6 +529,8 @@ public sealed class GameArenaRuntime
             player.State = PlayerLifeState.Idle;
             player.LastTouchedByPlayerId = null;
             player.LastTouchedTick = 0;
+            player.SpeedBoostRemaining = 0f;
+            player.KnockbackBoostRemaining = 0f;
         }
     }
 
@@ -537,6 +636,8 @@ public sealed class GameArenaRuntime
         player.State = PlayerLifeState.Idle;
         player.LastTouchedByPlayerId = null;
         player.LastTouchedTick = 0;
+        player.SpeedBoostRemaining = 0f;
+        player.KnockbackBoostRemaining = 0f;
     }
 
     private static PlayerLifeState GetLifeState(ConnectedPlayer player)
@@ -558,6 +659,22 @@ public sealed class GameArenaRuntime
     private static float LengthSquared(Vector2 value)
     {
         return value.x * value.x + value.y * value.y;
+    }
+
+    private static float GetMoveSpeed(ConnectedPlayer player)
+    {
+        return BaseSpeed * (player.SpeedBoostRemaining > 0f ? SpeedBoostMultiplier : 1f);
+    }
+
+    private static float GetPushScale(ConnectedPlayer player)
+    {
+        var pushScale = player.DashRemaining > 0f ? 1.75f : 1f;
+        if (player.KnockbackBoostRemaining > 0f)
+        {
+            pushScale *= KnockbackBoostMultiplier;
+        }
+
+        return pushScale;
     }
 
     private static Vector2 Normalize(Vector2 value)
@@ -583,6 +700,38 @@ public sealed class GameArenaRuntime
         };
 
         return points[index % points.Length];
+    }
+
+    private Vector2 GetRandomPickupPositionLocked()
+    {
+        var minX = -MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.x - _arenaConfig.PickupSpawnInset);
+        var maxX = MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.x - _arenaConfig.PickupSpawnInset);
+        var minY = -MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.y - _arenaConfig.PickupSpawnInset);
+        var maxY = MathF.Max(0.5f, _arenaConfig.ArenaHalfExtents.y - _arenaConfig.PickupSpawnInset);
+
+        return new Vector2(
+            System.Random.Shared.NextSingle() * (maxX - minX) + minX,
+            System.Random.Shared.NextSingle() * (maxY - minY) + minY);
+    }
+
+    private static float NextPickupRespawnDelaySeconds()
+    {
+        return PickupRespawnMinSeconds + (System.Random.Shared.NextSingle() * (PickupRespawnMaxSeconds - PickupRespawnMinSeconds));
+    }
+
+    private static void ApplyPickupLocked(ConnectedPlayer player, PickupType pickupType)
+    {
+        switch (pickupType)
+        {
+            case PickupType.SpeedBoost:
+                player.SpeedBoostRemaining = SpeedBoostDurationSeconds;
+                break;
+            case PickupType.KnockbackBoost:
+                player.KnockbackBoostRemaining = KnockbackBoostDurationSeconds;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(pickupType), pickupType, null);
+        }
     }
 
     private static void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
@@ -780,6 +929,19 @@ public sealed class GameArenaRuntime
         public int Score { get; set; } = 1;
     }
 
+    private sealed class ArenaPickup
+    {
+        public ArenaPickup(PickupType type)
+        {
+            Type = type;
+        }
+
+        public PickupType Type { get; }
+        public bool Active { get; set; }
+        public Vector2 Position { get; set; }
+        public float RespawnRemaining { get; set; }
+    }
+
     private sealed class ConnectedPlayer
     {
         public ConnectedPlayer(string playerId, IPlayerCallback? callback, int spawnIndex, Vector2 position, int score, bool isBot, int botNumber = 0)
@@ -815,6 +977,8 @@ public sealed class GameArenaRuntime
         public int Score { get; set; }
         public string? LastTouchedByPlayerId { get; set; }
         public int LastTouchedTick { get; set; }
+        public float SpeedBoostRemaining { get; set; }
+        public float KnockbackBoostRemaining { get; set; }
     }
 }
 

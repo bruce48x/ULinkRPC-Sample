@@ -76,6 +76,8 @@ namespace Shared.Interfaces
         public int RespawnDelaySeconds { get; set; }
         [MemoryPackOrder(2)]
         public List<PlayerState> Players { get; set; } = new();
+        [MemoryPackOrder(3)]
+        public List<PickupState> Pickups { get; set; } = new();
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -99,6 +101,21 @@ namespace Shared.Interfaces
         public int RespawnRemainingSeconds { get; set; }
         [MemoryPackOrder(8)]
         public int Score { get; set; }
+        [MemoryPackOrder(9)]
+        public int SpeedBoostRemainingSeconds { get; set; }
+        [MemoryPackOrder(10)]
+        public int KnockbackBoostRemainingSeconds { get; set; }
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class PickupState
+    {
+        [MemoryPackOrder(0)]
+        public PickupType Type { get; set; }
+        [MemoryPackOrder(1)]
+        public float X { get; set; }
+        [MemoryPackOrder(2)]
+        public float Y { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -126,5 +143,11 @@ namespace Shared.Interfaces
         Dash = 2,
         Stunned = 3,
         Dead = 4
+    }
+
+    public enum PickupType
+    {
+        SpeedBoost = 0,
+        KnockbackBoost = 1
     }
 }

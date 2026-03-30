@@ -18,6 +18,12 @@ namespace Shared.Gameplay
         [MemoryPackOrder(3)]
         public float PlayerVisualRadius { get; set; } = 0.94f;
 
+        [MemoryPackOrder(4)]
+        public float PickupCollisionRadius { get; set; } = 0.75f;
+
+        [MemoryPackOrder(5)]
+        public float PickupSpawnInset { get; set; } = 2f;
+
         public static ArenaConfig CreateDefault()
         {
             return new ArenaConfig();
