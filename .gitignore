@@ -13,6 +13,8 @@ Thumbs.db
 **/obj/
 /_artifacts/
 /.dotnet/
+/.nuget/
+/_verify/
 
 # Unity generated folders
 /Client/[Ll]ibrary/

@@ -1,193 +1,104 @@
-这个项目是为了对 [ULinkRPC](https://github.com/bruce48x/ulinkrpc)进行测试
-# 一、核心玩法（Core Gameplay）
-## 游戏目标
+# ULinkRPC Sample 31
 
-玩家在一个平台上互相推挤：
+这个项目用于验证 [ULinkRPC](https://github.com/bruce48x/ulinkrpc) 在一个轻量多人对战游戏里的接入方式，同时支持：
 
-- 被推下平台 → 淘汰
-- 最后存活玩家 → 胜利
+- 真正离线的本地单机
+- 基于 RPC 的联机同步
 
-##  玩家能力
+## 1. 玩法
 
-玩家只有 三个动作：
+### 目标
 
-- **移动**	WASD / 摇杆
-- **冲刺**	短时间高速撞击
-- **推挤**	接触时产生力
+玩家在一个方形平台上互相碰撞、推挤和冲刺：
 
-## 游戏流程
-```txt
-Lobby
- ↓
-Match Start
- ↓
-Battle Phase
- ↓
-Player Eliminated
- ↓
-Last Player Wins
- ↓
-Restart
-```
+- 掉出边界会被淘汰
+- 淘汰后会在倒计时结束后复活
+- 场上只剩 1 名存活玩家时，本局结束
+- 短暂延迟后自动重开下一局
 
-每局时间：30 ~ 90 秒
-# 二、地图结构
+### 基础动作
 
-地图非常简单：
-```txt
-+--------------------+
-|                    |
-|        arena       |
-|                    |
-|                    |
-|                    |
-+--------------------+
-```
+- `W/A/S/D` 移动
+- `Space` 冲刺
 
-核心规则：
+### Buff
 
-- 边缘是 死亡区域
-- 掉出边界 → 淘汰
+地图会随机刷新 buff 球。当前规则如下：
 
-## 地图元素（可选）
+- `冲击力`：碰撞击退强度提升到基础值的 `300%`，持续 `5s`
+- `加速`：逻辑仍保留在共享玩法内核中，但当前版本默认不刷新，便于单独测试 `冲击力`
 
-可以逐步增加：
+通用规则：
 
-- 移动平台	测同步
-- 旋转锤	测碰撞
-- 弹跳板	欢乐效果
-- 随机掉落地板	增加紧张感
-- 随机 buff 球	提升对局变数
-
-## 新增 buff 玩法
-
-地图上会随机刷新两种不同的小球，玩家触碰后立刻获得对应增益：
-
-- **加速**：移动速度提升 `50%`，持续 `10 秒`
-- **冲击力**：把其他玩家撞飞的距离提升 `50%`，持续 `5 秒`
-
-规则说明：
-
-- 两种球会在场地内随机位置刷新
-- 同类球被吃掉后会在短暂冷却后再次随机刷新
+- buff 被触发后立即生效
+- buff 在持续时间结束后自动消失
 - 玩家死亡或重生时，当前 buff 会被清空
-- buff 效果可叠加存在，例如同时拥有加速与重击
 
-# 三、核心系统结构
+### AI
 
-系统可以拆为 6 个模块。
-## 1 玩家系统（Player）
+AI 的目标是让对局总人数维持在 `4`：
 
-玩家实体包含：
-```txt
-Player
- ├ id
- ├ position
- ├ velocity
- ├ state
- ├ alive
- ├ speedBuffRemaining
- ├ knockbackBuffRemaining
-```
+- 联机模式：真人玩家加入后，服务端自动补足 AI
+- 单机模式：本地直接创建 1 个玩家 + 若干 AI，凑满 4 人
 
-状态机：
-```txt
-Idle
-Move
-Dash
-Stunned
-Dead
-```
-玩家参数
-```txt
-speed = 6
-dashSpeed = 12
-dashTime = 0.3s
-pushForce = 10
-speedBuff = +50% / 10s
-knockbackBuff = +50% / 5s
-```
+## 2. 模式
 
-## 2 输入系统（Input）
+启动游戏后先显示两个入口：
 
-客户端每帧发送：
-```txt
-PlayerInput
-{
-    moveX
-    moveY
-    dash
-}
-```
-频率：20Hz
-## 输入流程
-```txt
-Client Input
-    ↓
-Send RPC
-    ↓
-Server Apply Input
-    ↓
-Physics Simulation
-    ↓
-Broadcast State
-```
-## 3 物理系统（Physics）
+- `单机`
+  不连接服务器。客户端本地运行完整玩法模拟，适合断网或只想和 AI 对战的场景。
+- `联机`
+  弹出账号密码面板，点击 `匹配` 后才发起 RPC 连接和登录。
 
-玩家之间发生：碰撞 → 推挤
-简单实现：`Force = direction * pushForce`
-### 冲刺机制
-Dash：`velocity = direction * dashSpeed`
-冲刺时：
-- 推力更大
-- 碰撞效果更明显
+## 3. 架构
 
-### Buff 球机制
-服务器维护两个随机刷新的 pickup：
+### Shared
 
-```txt
-SpeedBoostPickup
-KnockbackBoostPickup
-```
+`Shared/Gameplay/ArenaSimulation.cs`
 
-玩家触碰 pickup 后：
+这是整个项目的玩法内核，负责统一实现：
 
-- 服务器立即应用 buff
-- pickup 消失并进入随机重生冷却
-- 新状态跟随 WorldState 一并广播
-## 4 淘汰系统（Elimination）
-服务器检查：
-```txt
-if player.position outside arena
-    player.dead = true
-```
-触发：
-```txt
-PlayerEliminated event
-```
-### 淘汰广播
-服务器广播：
-```txt
-PlayerDead
-{
-    playerId
-}
-```
-客户端播放：
-- 掉落动画
-- UI提示
+- 玩家移动、冲刺、眩晕
+- 玩家碰撞与击退
+- buff 刷新与拾取
+- AI 决策
+- 淘汰、复活、胜负判定
+- 世界状态快照生成
 
-## 5 胜利判定
-服务器维护：`alivePlayers`
-每次淘汰：`alivePlayers--`
-当：`alivePlayers == 1`
-触发：`MatchEnd`
-## 6 同步系统（最关键）
+设计原则：
 
-这是测试 ulinkrpc 的核心。
+- 玩法规则只写一份
+- 服务端联机和客户端单机共用同一套模拟逻辑
+- Shared 只关心规则和状态，不关心网络、UI、存档
+
+### Server
+
+`Server/Server/Services/GameArenaRuntime.cs`
+
+服务端现在是一个很薄的接入层，主要负责：
+
+- 登录后的玩家注册/注销
+- 调用 `ArenaSimulation` 推进联机对局
+- 广播 `WorldState / PlayerDead / MatchEnd`
+- 持久化真人玩家积分
+
+### Client
+
+`Client/Assets/Scripts/Gameplay/DotArenaGame.cs`
+
+客户端负责：
+
+- 启动菜单与模式切换
+- 单机模式下驱动本地 `ArenaSimulation`
+- 联机模式下发送输入、接收世界快照
+- 玩家、buff、小球视觉表现和 UI
+
+## 4. 同步边界
+
+联机模式遵循“客户端发输入，服务端发状态”：
+
 ### 客户端发送
 
-只发送 输入：
 ```txt
 InputMessage
 {
@@ -198,57 +109,72 @@ InputMessage
     tick
 }
 ```
-### 服务端模拟
 
-服务器：
-```txt
-ApplyInput
-SimulatePhysics
-UpdatePosition
-```
-### 状态广播
+### 服务端广播
 
-服务器广播：
 ```txt
 WorldState
 {
     tick
+    respawnDelaySeconds
     players[]
     pickups[]
 }
 ```
-玩家结构：
-```txt
-PlayerState
-{
-    id
-    x
-    y
-    vx
-    vy
-    speedBuffRemainingSeconds
-    knockbackBuffRemainingSeconds
-}
-```
-地图道具结构：
-```txt
-PickupState
-{
-    type
-    x
-    y
-}
-```
-频率：`10~20 Hz`
-# 四、客户端渲染
-客户端不直接使用服务器坐标。
 
-使用：`interpolation`
-## 插值算法
+其中：
+
+- `players[]` 包含位置、速度、生死状态、积分、buff 剩余时间
+- `pickups[]` 描述当前地图上还存在的 buff 球
+
+客户端渲染时对玩家位置做插值，避免快照跳动。
+
+## 5. 视觉实现
+
+### 玩家小球
+
+- 玩家球体使用自定义 shader 做果冻形变
+- 当玩家碰撞后进入 `Stunned` 状态，会触发一次短促的弹性反馈
+
+### Buff 小球
+
+- buff 球带名称标签
+- 名字显示在球体中心
+- 文字颜色会根据球体明暗自动切换黑/白
+
+## 6. 当前代码组织
+
 ```txt
-renderPosition =
-lerp(prevState, nextState)
+Shared
+ ├ Gameplay
+ │  ├ ArenaConfig.cs
+ │  └ ArenaSimulation.cs
+ └ Interfaces
+    └ IPlayerService.cs
+
+Server
+ └ Server
+    └ Services
+       └ GameArenaRuntime.cs
+
+Client
+ └ Assets
+    └ Scripts
+       └ Gameplay
+          └ DotArenaGame.cs
 ```
-优点：
-- 平滑
-- 抗网络抖动
+
+## 7. 当前实现状态
+
+已完成：
+
+- 单机与联机双模式入口
+- 共享玩法内核抽离到 `Shared`
+- 联机/单机共用同一套玩法规则
+- `冲击力` buff、AI 补位、复活、胜负判定
+- 玩家碰撞果冻效果
+
+待继续验证：
+
+- Unity 编辑器内的完整单机流程回归
+- 联机模式下 UI 交互与视觉细节的最终打磨

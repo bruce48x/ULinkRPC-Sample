@@ -33,6 +33,7 @@ namespace SampleClient.Gameplay
         private const float PlayerScoreOffsetY = -0.14f;
         private const float PickupPulseAmplitude = 0.08f;
         private const float PickupPulseFrequency = 3.2f;
+        private const string JellyShaderName = "SampleClient/BuffPickupJelly";
         private const int PlayerSortingOrder = 20;
         private const int PlayerOutlineSortingOrder = 25;
         private const int PlayerTextSortingOrder = 30;
@@ -80,9 +81,12 @@ namespace SampleClient.Gameplay
 
         private RpcClient? _connection;
         private IPlayerService? _playerService;
+        private ArenaSimulation? _localMatch;
         private string _localPlayerId = string.Empty;
         private bool _isConnected;
         private bool _isConnecting;
+        private EntryMenuState _entryMenuState = EntryMenuState.ModeSelect;
+        private SessionMode _sessionMode = SessionMode.None;
         private int _inputTick;
         private bool _dashQueued;
         private float _nextInputAt;
@@ -94,31 +98,29 @@ namespace SampleClient.Gameplay
         private Sprite _pixelSprite = null!;
         private Sprite _playerSprite = null!;
         private Sprite _playerOutlineSprite = null!;
+        private Shader? _jellyShader;
         private string _status = "Connecting...";
         private string _eventMessage = "等待玩家加入";
         private float _eventMessageUntil;
         private int _lastWorldTick = -1;
         private int _lastLoggedPlayerCount = -1;
-        private bool _applicationQuitting;
         private bool _shutdownStarted;
 
-        private async void Start()
+        private bool HasActiveSession => _sessionMode == SessionMode.SinglePlayer || _isConnected;
+
+        private void Start()
         {
             ApplyLaunchOverrides();
             ConfigureWindow();
             InitializeConnectionMode();
             ConfigureCamera();
             BuildArena();
-
-            if (ShouldAutoConnectOnStart())
-            {
-                await ConnectAsync();
-            }
         }
 
         private void Update()
         {
             CaptureInputIntent();
+            TickLocalMatch();
             ApplyPendingCallbacks();
             UpdateViews();
             HandleInput();
@@ -132,14 +134,19 @@ namespace SampleClient.Gameplay
 
         private void OnApplicationQuit()
         {
-            _applicationQuitting = true;
             BeginShutdown();
         }
 
         private void OnGUI()
         {
+            if (!HasActiveSession)
+            {
+                DrawEntryMenu();
+                return;
+            }
+
             const float width = 400f;
-            var height = ShouldShowConnectControls() ? 248f : 160f;
+            const float height = 160f;
 
             var boxRect = new Rect(16f, 16f, width, height);
             var contentRect = new Rect(28f, 24f, width - 24f, height - 16f);
@@ -169,17 +176,9 @@ namespace SampleClient.Gameplay
             GUI.Label(new Rect(contentRect.x, contentRect.y + 64f, contentRect.width, 18f),
                 $"服务端 Tick: {_lastWorldTick}   同步人数: {_views.Count}   Buff: {GetLocalPlayerBuffText()}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 84f, contentRect.width, 18f),
-                $"地址: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}", bodyStyle);
-
-            if (ShouldShowConnectControls())
-            {
-                DrawConnectControls(contentRect, bodyStyle);
-                GUI.Label(new Rect(contentRect.x, contentRect.y + 192f, contentRect.width, 18f),
-                    $"事件: {GetCurrentEventMessage()}", bodyStyle);
-                GUI.Label(new Rect(contentRect.x, contentRect.y + 212f, contentRect.width, 18f),
-                    "连接成功后可用 W/A/S/D 移动, Space 冲刺。", bodyStyle);
-                return;
-            }
+                _sessionMode == SessionMode.SinglePlayer
+                    ? "模式: 本地单机"
+                    : $"地址: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}", bodyStyle);
 
             GUI.Label(new Rect(contentRect.x, contentRect.y + 104f, contentRect.width, 18f),
                 "W/A/S/D 移动, Space 冲刺。客户端只发输入，位置以服务端广播为准。", bodyStyle);
@@ -244,6 +243,103 @@ namespace SampleClient.Gameplay
                 GUI.Label(scoreRect, $"score: {FormatScore(renderState.Score)}", scoreStyle);
             }
         }
+
+        private void DrawEntryMenu()
+        {
+            const float width = 360f;
+            const float height = 240f;
+            var boxRect = new Rect((Screen.width - width) * 0.5f, (Screen.height - height) * 0.5f, width, height);
+            var contentRect = new Rect(boxRect.x + 20f, boxRect.y + 20f, width - 40f, height - 40f);
+
+            var previousColor = GUI.color;
+            GUI.color = new Color(0.04f, 0.06f, 0.08f, 0.94f);
+            GUI.Box(boxRect, GUIContent.none);
+            GUI.color = previousColor;
+
+            var titleStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 22,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+
+            var bodyStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 13,
+                wordWrap = true,
+                normal = { textColor = new Color(0.86f, 0.91f, 0.96f, 1f) }
+            };
+
+            GUI.Label(new Rect(contentRect.x, contentRect.y, contentRect.width, 30f), "Dot Arena", titleStyle);
+            GUI.Label(new Rect(contentRect.x, contentRect.y + 34f, contentRect.width, 36f), _status, bodyStyle);
+
+            switch (_entryMenuState)
+            {
+                case EntryMenuState.ModeSelect:
+                    DrawModeSelect(contentRect, bodyStyle);
+                    break;
+                case EntryMenuState.MultiplayerAuth:
+                    DrawMultiplayerAuthDialog(contentRect, bodyStyle);
+                    break;
+            }
+        }
+
+        private void DrawModeSelect(Rect contentRect, GUIStyle bodyStyle)
+        {
+            GUI.Label(new Rect(contentRect.x, contentRect.y + 70f, contentRect.width, 36f),
+                "选择一种游玩方式。单机会直接进入并自动补足 AI 到 4 人。", bodyStyle);
+
+            var previousEnabled = GUI.enabled;
+            GUI.enabled = !_isConnecting;
+            if (GUI.Button(new Rect(contentRect.x + 30f, contentRect.y + 126f, contentRect.width - 60f, 34f), "单机"))
+            {
+                BeginSinglePlayerMatch();
+            }
+
+            if (GUI.Button(new Rect(contentRect.x + 30f, contentRect.y + 170f, contentRect.width - 60f, 34f), "联机"))
+            {
+                _entryMenuState = EntryMenuState.MultiplayerAuth;
+                _status = "请输入账号密码";
+                _eventMessage = "点击匹配后发起联机";
+            }
+
+            GUI.enabled = previousEnabled;
+        }
+
+        private void DrawMultiplayerAuthDialog(Rect contentRect, GUIStyle bodyStyle)
+        {
+            const float labelWidth = 48f;
+            const float fieldHeight = 24f;
+            var fieldWidth = contentRect.width - labelWidth - 26f;
+            var accountY = contentRect.y + 74f;
+            var passwordY = contentRect.y + 110f;
+            var buttonY = contentRect.y + 154f;
+
+            GUI.Label(new Rect(contentRect.x, contentRect.y + 42f, contentRect.width, 24f), "联机匹配", bodyStyle);
+            GUI.Label(new Rect(contentRect.x + 8f, accountY + 3f, labelWidth, 20f), "账号", bodyStyle);
+            GUI.Label(new Rect(contentRect.x + 8f, passwordY + 3f, labelWidth, 20f), "密码", bodyStyle);
+
+            var previousEnabled = GUI.enabled;
+            GUI.enabled = !_isConnecting;
+            _account = GUI.TextField(new Rect(contentRect.x + labelWidth + 14f, accountY, fieldWidth, fieldHeight), _account);
+            _password = GUI.PasswordField(new Rect(contentRect.x + labelWidth + 14f, passwordY, fieldWidth, fieldHeight), _password, '*');
+
+            if (GUI.Button(new Rect(contentRect.x + 8f, buttonY, 120f, 28f), _isConnecting ? "匹配中..." : "匹配"))
+            {
+                _ = ConnectAsync();
+            }
+
+            if (GUI.Button(new Rect(contentRect.x + contentRect.width - 128f, buttonY, 120f, 28f), "返回"))
+            {
+                _entryMenuState = EntryMenuState.ModeSelect;
+                _status = "选择模式";
+                _eventMessage = "请选择单机或联机";
+            }
+
+            GUI.enabled = previousEnabled;
+        }
         public void OnWorldState(WorldState worldState)
         {
             lock (_callbackLock)
@@ -278,7 +374,7 @@ namespace SampleClient.Gameplay
 
         private async Task ConnectAsync()
         {
-            if (_isConnecting || _isConnected) return;
+            if (_isConnecting || _isConnected || _sessionMode == SessionMode.SinglePlayer) return;
 
             _isConnecting = true;
             _status = $"Connecting {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}";
@@ -309,6 +405,8 @@ namespace SampleClient.Gameplay
 
                 _localPlayerId = string.IsNullOrWhiteSpace(reply.PlayerId) ? _account : reply.PlayerId;
                 _isConnected = true;
+                _sessionMode = SessionMode.Multiplayer;
+                _entryMenuState = EntryMenuState.Hidden;
                 _status = $"Connected as {_localPlayerId}";
                 Debug.Log($"[DotArena] Connected as {_localPlayerId} -> {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
                 PushEvent("等待其他玩家加入");
@@ -410,6 +508,8 @@ namespace SampleClient.Gameplay
                     _renderStates.Add(player.PlayerId, renderState);
                 }
 
+                var previousState = renderState.State;
+
                 var currentPosition = view.GetPosition();
                 var targetPosition = new Vector2(player.X, player.Y);
                 renderState.PreviousPosition = currentPosition;
@@ -424,6 +524,10 @@ namespace SampleClient.Gameplay
                 renderState.KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds;
 
                 view.SetIdentity(player.PlayerId, player.Score);
+                if (previousState != PlayerLifeState.Stunned && player.State == PlayerLifeState.Stunned)
+                {
+                    view.TriggerCollisionJelly();
+                }
                 view.ApplyPresentation(ResolveColor(player.PlayerId), player.State, player.Alive,
                     player.SpeedBoostRemainingSeconds > 0, player.KnockbackBoostRemainingSeconds > 0);
                 if (player.PlayerId == _localPlayerId)
@@ -488,6 +592,27 @@ namespace SampleClient.Gameplay
                 : $"胜者: {matchEnd.WinnerPlayerId}");
         }
 
+        private void TickLocalMatch()
+        {
+            if (_sessionMode != SessionMode.SinglePlayer || _localMatch == null)
+            {
+                return;
+            }
+
+            var step = _localMatch.Tick(Time.deltaTime);
+            ApplyWorldState(step.WorldState);
+
+            foreach (var deadEvent in step.Deaths)
+            {
+                HandleDeadEvent(deadEvent);
+            }
+
+            if (step.MatchEnd != null)
+            {
+                HandleMatchEnd(step.MatchEnd);
+            }
+        }
+
         private void UpdateViews()
         {
             foreach (var entry in _views)
@@ -509,11 +634,16 @@ namespace SampleClient.Gameplay
                 var pulse = 1f + (Mathf.Sin(Time.time * PickupPulseFrequency) * PickupPulseAmplitude);
                 pickupView.Root.transform.localScale = new Vector3(pickupScale * pulse, pickupScale * pulse, 1f);
             }
+
+            foreach (var dotView in _views.Values)
+            {
+                dotView.UpdateJelly(Time.time);
+            }
         }
 
         private void HandleInput()
         {
-            if (!_isConnected || _playerService == null || Time.time < _nextInputAt)
+            if (!HasActiveSession || Time.time < _nextInputAt)
             {
                 return;
             }
@@ -523,6 +653,24 @@ namespace SampleClient.Gameplay
             var move = ReadMoveVector();
             var dash = _dashQueued;
             _dashQueued = false;
+
+            if (_sessionMode == SessionMode.SinglePlayer && _localMatch != null)
+            {
+                _localMatch.SubmitInput(new InputMessage
+                {
+                    PlayerId = _localPlayerId,
+                    MoveX = move.x,
+                    MoveY = move.y,
+                    Dash = dash,
+                    Tick = ++_inputTick
+                });
+                return;
+            }
+
+            if (!_isConnected || _playerService == null)
+            {
+                return;
+            }
 
             _ = SendInputAsync(move, dash);
         }
@@ -556,9 +704,13 @@ namespace SampleClient.Gameplay
 
         private void OnDisconnected(Exception? ex)
         {
+            ResetSessionPresentation();
             _isConnected = false;
             _playerService = null;
             _localPlayerId = string.Empty;
+            _sessionMode = SessionMode.None;
+            _localMatch = null;
+            _entryMenuState = EntryMenuState.ModeSelect;
             _status = ex == null ? "Disconnected" : $"Disconnected: {ex.Message}";
             Debug.LogWarning($"[DotArena] {_status}");
         }
@@ -607,6 +759,7 @@ namespace SampleClient.Gameplay
             {
                 _playerService = null;
                 _isConnected = false;
+                _sessionMode = SessionMode.None;
                 _localPlayerId = string.Empty;
             }
         }
@@ -641,14 +794,9 @@ namespace SampleClient.Gameplay
 
         private void InitializeConnectionMode()
         {
-            if (ShouldAutoConnectOnStart())
-            {
-                _status = "Connecting...";
-                return;
-            }
-
-            _status = "Ready to connect";
-            _eventMessage = "请先输入账号密码";
+            _entryMenuState = EntryMenuState.ModeSelect;
+            _status = "选择模式";
+            _eventMessage = "请选择单机或联机";
         }
 
         private void ApplyLaunchOverrides()
@@ -663,40 +811,28 @@ namespace SampleClient.Gameplay
             }
         }
 
-        private bool ShouldAutoConnectOnStart()
+        private void BeginSinglePlayerMatch()
         {
-            return Application.isEditor;
-        }
-
-        private bool ShouldShowConnectControls()
-        {
-            return !Application.isEditor && !_isConnected;
-        }
-
-        private void DrawConnectControls(Rect contentRect, GUIStyle bodyStyle)
-        {
-            const float labelWidth = 64f;
-            const float fieldHeight = 22f;
-            var fieldWidth = contentRect.width - labelWidth - 12f;
-            var accountY = contentRect.y + 108f;
-            var passwordY = contentRect.y + 138f;
-            var buttonY = contentRect.y + 168f;
-
-            GUI.Label(new Rect(contentRect.x, accountY + 2f, labelWidth, 18f), "账号", bodyStyle);
-            GUI.Label(new Rect(contentRect.x, passwordY + 2f, labelWidth, 18f), "密码", bodyStyle);
-
-            var previousEnabled = GUI.enabled;
-            GUI.enabled = !_isConnecting;
-            _account = GUI.TextField(new Rect(contentRect.x + labelWidth, accountY, fieldWidth, fieldHeight), _account);
-            _password = GUI.PasswordField(new Rect(contentRect.x + labelWidth, passwordY, fieldWidth, fieldHeight), _password, '*');
-
-            var buttonLabel = _isConnecting ? "Connecting..." : "Connect";
-            if (GUI.Button(new Rect(contentRect.x, buttonY, 120f, 24f), buttonLabel))
+            ResetSessionPresentation();
+            _sessionMode = SessionMode.SinglePlayer;
+            _localPlayerId = "Player";
+            _localMatch = new ArenaSimulation(new ArenaSimulationOptions
             {
-                _ = ConnectAsync();
-            }
-
-            GUI.enabled = previousEnabled;
+                Arena = GameplayConfig,
+                RespawnDelaySeconds = 5f
+            });
+            _localMatch.UpsertPlayer(new ArenaPlayerRegistration
+            {
+                PlayerId = _localPlayerId,
+                Score = 1
+            });
+            _entryMenuState = EntryMenuState.Hidden;
+            _status = "单机匹配中...";
+            _eventMessage = "正在进入本地单机模式";
+            _lastWorldTick = -1;
+            _inputTick = 0;
+            ApplyWorldState(_localMatch.CreateWorldState());
+            _status = $"单机模式: {_localPlayerId}";
         }
 
         private void BuildArena()
@@ -704,6 +840,7 @@ namespace SampleClient.Gameplay
             _pixelSprite = CreatePixelSprite();
             _playerSprite = CreateCircleSprite();
             _playerOutlineSprite = CreateCircleOutlineSprite();
+            _jellyShader = Shader.Find(JellyShaderName);
 
             var arenaRoot = new GameObject("ArenaRoot");
             arenaRoot.transform.SetParent(transform, false);
@@ -730,6 +867,30 @@ namespace SampleClient.Gameplay
                 new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
             CreateRect(arenaRoot.transform, "RightBorder", new Vector2(ArenaHalfWidth, 0f),
                 new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
+        }
+
+        private void ResetSessionPresentation()
+        {
+            foreach (var view in _views.Values)
+            {
+                Destroy(view.Root);
+            }
+
+            foreach (var pickupView in _pickupViews.Values)
+            {
+                Destroy(pickupView.Root);
+            }
+
+            _views.Clear();
+            _pickupViews.Clear();
+            _renderStates.Clear();
+            _pendingWorldState = null;
+            _pendingDeaths.Clear();
+            _pendingMatchEnd = null;
+            _lastWorldTick = -1;
+            _lastLoggedPlayerCount = -1;
+            _dashQueued = false;
+            _nextInputAt = 0f;
         }
 
         private void ApplyPickupState(WorldState worldState)
@@ -780,6 +941,7 @@ namespace SampleClient.Gameplay
             renderer.sprite = _playerSprite;
             renderer.color = ResolveColor(playerId);
             renderer.sortingOrder = PlayerSortingOrder;
+            renderer.material = CreateJellyMaterial(GetPlayerJellyPhase(playerId), 4.8f, 0.12f);
 
             var outlineObject = new GameObject("Outline");
             outlineObject.transform.SetParent(viewRoot.transform, false);
@@ -788,6 +950,7 @@ namespace SampleClient.Gameplay
             outlineRenderer.sprite = _playerOutlineSprite;
             outlineRenderer.color = PlayerOutlineColor;
             outlineRenderer.sortingOrder = PlayerOutlineSortingOrder;
+            outlineRenderer.material = CreateJellyMaterial(GetPlayerJellyPhase(playerId) + 0.8f, 5.2f, 0.16f);
 
             var nameLabel = new GameObject("NameLabel");
             nameLabel.transform.SetParent(viewRoot.transform, false);
@@ -854,7 +1017,6 @@ namespace SampleClient.Gameplay
             renderer.sprite = _playerSprite;
             renderer.color = GetPickupColor(pickupType);
             renderer.sortingOrder = PickupSortingOrder;
-
             var glow = new GameObject("Glow");
             glow.transform.SetParent(pickupRoot.transform, false);
             glow.transform.localPosition = new Vector3(0f, 0f, 0.01f);
@@ -881,6 +1043,29 @@ namespace SampleClient.Gameplay
 
             pickupRoot.SetActive(false);
             return new PickupView(pickupRoot, renderer, glowRenderer, labelText);
+        }
+
+        private Material CreateJellyMaterial(float phase, float wobbleSpeed, float wobbleAmount)
+        {
+            if (_jellyShader == null)
+            {
+                _jellyShader = Shader.Find(JellyShaderName);
+            }
+
+            var shader = _jellyShader != null ? _jellyShader : Shader.Find("Sprites/Default");
+            var material = new Material(shader)
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+
+            if (_jellyShader != null)
+            {
+                material.SetFloat("_Phase", phase);
+                material.SetFloat("_WobbleSpeed", wobbleSpeed);
+                material.SetFloat("_WobbleAmount", wobbleAmount);
+            }
+
+            return material;
         }
 
         private static void ConfigureTextRenderer(MeshRenderer? renderer, int sortingOrder)
@@ -1121,6 +1306,20 @@ namespace SampleClient.Gameplay
             };
         }
 
+        private static float GetPlayerJellyPhase(string playerId)
+        {
+            unchecked
+            {
+                var hash = 17;
+                foreach (var ch in playerId)
+                {
+                    hash = (hash * 31) + ch;
+                }
+
+                return Mathf.Abs(hash % 100) / 20f;
+            }
+        }
+
         private static Color GetPickupLabelColor(PickupType pickupType)
         {
             var color = GetPickupColor(pickupType);
@@ -1152,6 +1351,7 @@ namespace SampleClient.Gameplay
             private readonly SpriteRenderer _outlineRenderer;
             private readonly TextMesh _nameText;
             private readonly TextMesh _scoreText;
+            private float _impactUntil;
 
             public DotView(GameObject root, SpriteRenderer renderer, SpriteRenderer outlineRenderer, TextMesh nameText, TextMesh scoreText)
             {
@@ -1173,6 +1373,19 @@ namespace SampleClient.Gameplay
             public void SetPosition(Vector2 position)
             {
                 Root.transform.position = new Vector3(position.x, position.y, 0f);
+            }
+
+            public void TriggerCollisionJelly()
+            {
+                _impactUntil = Time.time + 0.28f;
+            }
+
+            public void UpdateJelly(float time)
+            {
+                var remaining = Mathf.Clamp01((_impactUntil - time) / 0.28f);
+                var pulse = remaining * remaining;
+                UpdateMaterial(_renderer, time, pulse, 1f);
+                UpdateMaterial(_outlineRenderer, time, pulse, 1.2f);
             }
 
             public void SetIdentity(string playerId, int score)
@@ -1214,6 +1427,20 @@ namespace SampleClient.Gameplay
                 var scaleBoost = hasSpeedBoost || hasKnockbackBoost ? 1.08f : 1f;
                 Root.transform.localScale = new Vector3(PlayerVisualDiameter * scaleBoost, PlayerVisualDiameter * scaleBoost, 1f);
             }
+
+            private static void UpdateMaterial(SpriteRenderer renderer, float time, float impactPulse, float wobbleScale)
+            {
+                var material = renderer.material;
+                if (material == null || !material.HasProperty("_WobbleAmount"))
+                {
+                    return;
+                }
+
+                var wobble = (0.06f + (impactPulse * 0.34f)) * wobbleScale;
+                var speed = 3.6f + (impactPulse * 7.5f);
+                material.SetFloat("_WobbleAmount", wobble);
+                material.SetFloat("_WobbleSpeed", speed + (Mathf.Sin(time * 1.3f) * 0.15f));
+            }
         }
 
         private sealed class PickupView
@@ -1230,6 +1457,20 @@ namespace SampleClient.Gameplay
             public SpriteRenderer Renderer { get; }
             public SpriteRenderer GlowRenderer { get; }
             public TextMesh LabelText { get; }
+        }
+
+        private enum EntryMenuState
+        {
+            Hidden = 0,
+            ModeSelect = 1,
+            MultiplayerAuth = 2
+        }
+
+        private enum SessionMode
+        {
+            None = 0,
+            SinglePlayer = 1,
+            Multiplayer = 2
         }
     }
 }
