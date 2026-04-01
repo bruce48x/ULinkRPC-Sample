@@ -8,6 +8,9 @@ using Shared.Gameplay;
 using Shared.Interfaces;
 using ULinkRPC.Client;
 using UnityEngine;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 using Object = UnityEngine.Object;
 
 namespace SampleClient.Gameplay
@@ -85,6 +88,7 @@ namespace SampleClient.Gameplay
         private string _localPlayerId = string.Empty;
         private bool _isConnected;
         private bool _isConnecting;
+        private bool _singlePlayerStartRequested;
         private EntryMenuState _entryMenuState = EntryMenuState.ModeSelect;
         private SessionMode _sessionMode = SessionMode.None;
         private int _inputTick;
@@ -105,6 +109,12 @@ namespace SampleClient.Gameplay
         private int _lastWorldTick = -1;
         private int _lastLoggedPlayerCount = -1;
         private bool _shutdownStarted;
+        private string _lastLoggedInputVector = string.Empty;
+#if UNITY_EDITOR
+        private Vector2 _editorMoveOverride;
+        private bool _editorDashOverride;
+        private bool _hasEditorInputOverride;
+#endif
 
         private bool HasActiveSession => _sessionMode == SessionMode.SinglePlayer || _isConnected;
 
@@ -120,10 +130,11 @@ namespace SampleClient.Gameplay
         private void Update()
         {
             CaptureInputIntent();
+            ProcessMenuRequests();
+            HandleInput();
             TickLocalMatch();
             ApplyPendingCallbacks();
             UpdateViews();
-            HandleInput();
         }
 
         private void OnDestroy()
@@ -295,7 +306,7 @@ namespace SampleClient.Gameplay
             GUI.enabled = !_isConnecting;
             if (GUI.Button(new Rect(contentRect.x + 30f, contentRect.y + 126f, contentRect.width - 60f, 34f), "单机"))
             {
-                BeginSinglePlayerMatch();
+                _singlePlayerStartRequested = true;
             }
 
             if (GUI.Button(new Rect(contentRect.x + 30f, contentRect.y + 170f, contentRect.width - 60f, 34f), "联机"))
@@ -429,7 +440,12 @@ namespace SampleClient.Gameplay
 
         private void CaptureInputIntent()
         {
-            if (Input.GetKeyDown(KeyCode.Space))
+            if (ConsumeEditorDashOverride())
+            {
+                _dashQueued = true;
+            }
+
+            if (IsKeyDown(KeyCode.Space))
             {
                 _dashQueued = true;
             }
@@ -489,30 +505,43 @@ namespace SampleClient.Gameplay
             {
                 _lastLoggedPlayerCount = worldState.Players.Count;
                 Debug.Log($"[DotArena] WorldState tick={worldState.Tick}, players={worldState.Players.Count}, local={_localPlayerId}");
+                Debug.Log($"[DotArena] Players => {string.Join(", ", worldState.Players.ConvertAll(static p => $"{p.PlayerId}@({p.X:0.00},{p.Y:0.00}) alive={p.Alive}"))}");
             }
 
             var activeIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var player in worldState.Players)
             {
                 activeIds.Add(player.PlayerId);
+                var targetPosition = new Vector2(player.X, player.Y);
+                var isNewView = false;
+                var isNewRenderState = false;
+                var shouldSnapToTarget = _sessionMode == SessionMode.SinglePlayer;
 
                 if (!_views.TryGetValue(player.PlayerId, out var view))
                 {
                     view = CreateView(player.PlayerId);
                     _views.Add(player.PlayerId, view);
+                    view.SetPosition(targetPosition);
+                    isNewView = true;
+                    Debug.Log($"[DotArena] Created view for {player.PlayerId}, totalViews={_views.Count}");
                 }
 
                 if (!_renderStates.TryGetValue(player.PlayerId, out var renderState))
                 {
                     renderState = new PlayerRenderState();
                     _renderStates.Add(player.PlayerId, renderState);
+                    isNewRenderState = true;
                 }
 
                 var previousState = renderState.State;
 
                 var currentPosition = view.GetPosition();
-                var targetPosition = new Vector2(player.X, player.Y);
-                renderState.PreviousPosition = currentPosition;
+                if (isNewView || isNewRenderState)
+                {
+                    currentPosition = targetPosition;
+                }
+
+                renderState.PreviousPosition = shouldSnapToTarget ? targetPosition : currentPosition;
                 renderState.TargetPosition = targetPosition;
                 renderState.ReceivedAt = Time.time;
                 renderState.Alive = player.Alive;
@@ -565,6 +594,7 @@ namespace SampleClient.Gameplay
             }
 
             ApplyPickupState(worldState);
+            Debug.Log($"[DotArena] ApplyWorldState complete tick={worldState.Tick}, views={_views.Count}, renders={_renderStates.Count}");
         }
 
         private void HandleDeadEvent(PlayerDead deadEvent)
@@ -622,9 +652,18 @@ namespace SampleClient.Gameplay
                     continue;
                 }
 
-                var elapsed = Mathf.Clamp01((Time.time - renderState.ReceivedAt) / InterpolationDurationSeconds);
-                var smoothed = elapsed * elapsed * (3f - (2f * elapsed));
-                var position = Vector2.Lerp(renderState.PreviousPosition, renderState.TargetPosition, smoothed);
+                Vector2 position;
+                if (_sessionMode == SessionMode.SinglePlayer)
+                {
+                    position = renderState.TargetPosition;
+                }
+                else
+                {
+                    var elapsed = Mathf.Clamp01((Time.time - renderState.ReceivedAt) / InterpolationDurationSeconds);
+                    var smoothed = elapsed * elapsed * (3f - (2f * elapsed));
+                    position = Vector2.Lerp(renderState.PreviousPosition, renderState.TargetPosition, smoothed);
+                }
+
                 entry.Value.SetPosition(position);
             }
 
@@ -653,6 +692,12 @@ namespace SampleClient.Gameplay
             var move = ReadMoveVector();
             var dash = _dashQueued;
             _dashQueued = false;
+            var inputSummary = $"{move.x:0.00},{move.y:0.00}|dash={dash}";
+            if (!string.Equals(_lastLoggedInputVector, inputSummary, StringComparison.Ordinal))
+            {
+                _lastLoggedInputVector = inputSummary;
+                Debug.Log($"[DotArena] HandleInput mode={_sessionMode} move={inputSummary} localMatch={_localMatch != null}");
+            }
 
             if (_sessionMode == SessionMode.SinglePlayer && _localMatch != null)
             {
@@ -704,6 +749,14 @@ namespace SampleClient.Gameplay
 
         private void OnDisconnected(Exception? ex)
         {
+            if (_sessionMode == SessionMode.SinglePlayer)
+            {
+                _playerService = null;
+                _isConnected = false;
+                Debug.LogWarning($"[DotArena] Ignored remote disconnect while running single-player: {ex?.Message ?? "Disconnected"}");
+                return;
+            }
+
             ResetSessionPresentation();
             _isConnected = false;
             _playerService = null;
@@ -727,7 +780,7 @@ namespace SampleClient.Gameplay
             _ = DisposeConnectionAsync();
         }
 
-        private async Task DisposeConnectionAsync()
+        private async Task DisposeConnectionAsync(bool clearSessionState = true)
         {
             if (_connection == null) return;
 
@@ -735,6 +788,7 @@ namespace SampleClient.Gameplay
             var playerService = _playerService;
             var shouldLogout = _isConnected && playerService != null;
             _connection = null;
+            connection.Disconnected -= OnDisconnected;
 
             try
             {
@@ -749,7 +803,6 @@ namespace SampleClient.Gameplay
 
             try
             {
-                connection.Disconnected -= OnDisconnected;
                 await connection.DisposeAsync().ConfigureAwait(false);
             }
             catch
@@ -759,9 +812,48 @@ namespace SampleClient.Gameplay
             {
                 _playerService = null;
                 _isConnected = false;
-                _sessionMode = SessionMode.None;
-                _localPlayerId = string.Empty;
+                if (clearSessionState)
+                {
+                    _sessionMode = SessionMode.None;
+                    _localPlayerId = string.Empty;
+                }
             }
+        }
+
+        private void ProcessMenuRequests()
+        {
+            if (HasActiveSession || _isConnecting)
+            {
+                return;
+            }
+
+            if (_entryMenuState == EntryMenuState.ModeSelect && IsSinglePlayerHotkeyPressed())
+            {
+                _singlePlayerStartRequested = true;
+            }
+
+            if (!_singlePlayerStartRequested)
+            {
+                return;
+            }
+
+            _singlePlayerStartRequested = false;
+            BeginSinglePlayerMatch();
+        }
+
+        private static bool IsSinglePlayerHotkeyPressed()
+        {
+            return IsKeyDown(KeyCode.Return) ||
+                   IsKeyDown(KeyCode.KeypadEnter) ||
+                   IsKeyDown(KeyCode.W) ||
+                   IsKeyDown(KeyCode.A) ||
+                   IsKeyDown(KeyCode.S) ||
+                   IsKeyDown(KeyCode.D) ||
+                   IsKeyDown(KeyCode.UpArrow) ||
+                   IsKeyDown(KeyCode.LeftArrow) ||
+                   IsKeyDown(KeyCode.DownArrow) ||
+                   IsKeyDown(KeyCode.RightArrow) ||
+                   IsKeyDown(KeyCode.Space);
         }
 
         private void ConfigureCamera()
@@ -814,6 +906,10 @@ namespace SampleClient.Gameplay
         private void BeginSinglePlayerMatch()
         {
             ResetSessionPresentation();
+            _ = DisposeConnectionAsync(clearSessionState: false);
+            _isConnecting = false;
+            _isConnected = false;
+            _playerService = null;
             _sessionMode = SessionMode.SinglePlayer;
             _localPlayerId = "Player";
             _localMatch = new ArenaSimulation(new ArenaSimulationOptions
@@ -831,6 +927,7 @@ namespace SampleClient.Gameplay
             _eventMessage = "正在进入本地单机模式";
             _lastWorldTick = -1;
             _inputTick = 0;
+            Debug.Log("[DotArena] BeginSinglePlayerMatch");
             ApplyWorldState(_localMatch.CreateWorldState());
             _status = $"单机模式: {_localPlayerId}";
         }
@@ -871,6 +968,7 @@ namespace SampleClient.Gameplay
 
         private void ResetSessionPresentation()
         {
+            Debug.Log($"[DotArena] ResetSessionPresentation views={_views.Count}, pickups={_pickupViews.Count}, mode={_sessionMode}");
             foreach (var view in _views.Values)
             {
                 Destroy(view.Root);
@@ -920,28 +1018,117 @@ namespace SampleClient.Gameplay
 
         private Vector2 ReadMoveVector()
         {
+#if UNITY_EDITOR
+            if (_hasEditorInputOverride)
+            {
+                return _editorMoveOverride.sqrMagnitude > 1f ? _editorMoveOverride.normalized : _editorMoveOverride;
+            }
+#endif
+
             var x = 0f;
             var y = 0f;
 
-            if (Input.GetKey(KeyCode.A)) x -= 1f;
-            if (Input.GetKey(KeyCode.D)) x += 1f;
-            if (Input.GetKey(KeyCode.S)) y -= 1f;
-            if (Input.GetKey(KeyCode.W)) y += 1f;
+            if (IsKeyPressed(KeyCode.A)) x -= 1f;
+            if (IsKeyPressed(KeyCode.D)) x += 1f;
+            if (IsKeyPressed(KeyCode.S)) y -= 1f;
+            if (IsKeyPressed(KeyCode.W)) y += 1f;
 
             var move = new Vector2(x, y);
             return move.sqrMagnitude > 1f ? move.normalized : move;
+        }
+
+#if UNITY_EDITOR
+        private bool ConsumeEditorDashOverride()
+        {
+            if (!_editorDashOverride)
+            {
+                return false;
+            }
+
+            _editorDashOverride = false;
+            return true;
+        }
+#endif
+
+        private static bool IsKeyPressed(KeyCode keyCode)
+        {
+            if (Input.GetKey(keyCode))
+            {
+                return true;
+            }
+
+#if ENABLE_INPUT_SYSTEM
+            var keyboard = Keyboard.current;
+            if (keyboard == null)
+            {
+                return false;
+            }
+
+            return keyCode switch
+            {
+                KeyCode.W => keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed,
+                KeyCode.A => keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed,
+                KeyCode.S => keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed,
+                KeyCode.D => keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed,
+                KeyCode.Space => keyboard.spaceKey.isPressed,
+                KeyCode.Return => keyboard.enterKey.isPressed,
+                KeyCode.KeypadEnter => keyboard.numpadEnterKey.isPressed,
+                KeyCode.UpArrow => keyboard.upArrowKey.isPressed,
+                KeyCode.LeftArrow => keyboard.leftArrowKey.isPressed,
+                KeyCode.DownArrow => keyboard.downArrowKey.isPressed,
+                KeyCode.RightArrow => keyboard.rightArrowKey.isPressed,
+                _ => false
+            };
+#else
+            return false;
+#endif
+        }
+
+        private static bool IsKeyDown(KeyCode keyCode)
+        {
+            if (Input.GetKeyDown(keyCode))
+            {
+                return true;
+            }
+
+#if ENABLE_INPUT_SYSTEM
+            var keyboard = Keyboard.current;
+            if (keyboard == null)
+            {
+                return false;
+            }
+
+            return keyCode switch
+            {
+                KeyCode.W => keyboard.wKey.wasPressedThisFrame || keyboard.upArrowKey.wasPressedThisFrame,
+                KeyCode.A => keyboard.aKey.wasPressedThisFrame || keyboard.leftArrowKey.wasPressedThisFrame,
+                KeyCode.S => keyboard.sKey.wasPressedThisFrame || keyboard.downArrowKey.wasPressedThisFrame,
+                KeyCode.D => keyboard.dKey.wasPressedThisFrame || keyboard.rightArrowKey.wasPressedThisFrame,
+                KeyCode.Space => keyboard.spaceKey.wasPressedThisFrame,
+                KeyCode.Return => keyboard.enterKey.wasPressedThisFrame,
+                KeyCode.KeypadEnter => keyboard.numpadEnterKey.wasPressedThisFrame,
+                KeyCode.UpArrow => keyboard.upArrowKey.wasPressedThisFrame,
+                KeyCode.LeftArrow => keyboard.leftArrowKey.wasPressedThisFrame,
+                KeyCode.DownArrow => keyboard.downArrowKey.wasPressedThisFrame,
+                KeyCode.RightArrow => keyboard.rightArrowKey.wasPressedThisFrame,
+                _ => false
+            };
+#else
+            return false;
+#endif
         }
 
         private DotView CreateView(string playerId)
         {
             var viewRoot = new GameObject(playerId);
             viewRoot.transform.SetParent(transform, false);
+            Debug.Log($"[DotArena] CreateView root={viewRoot.name} parent={viewRoot.transform.parent?.name}");
 
             var renderer = viewRoot.AddComponent<SpriteRenderer>();
             renderer.sprite = _playerSprite;
             renderer.color = ResolveColor(playerId);
             renderer.sortingOrder = PlayerSortingOrder;
-            renderer.material = CreateJellyMaterial(GetPlayerJellyPhase(playerId), 4.8f, 0.12f);
+            renderer.material = CreateJellyMaterial(UnityEngine.Random.Range(0f, Mathf.PI * 2f), 3.6f, 0.06f);
 
             var outlineObject = new GameObject("Outline");
             outlineObject.transform.SetParent(viewRoot.transform, false);
@@ -949,8 +1136,8 @@ namespace SampleClient.Gameplay
             var outlineRenderer = outlineObject.AddComponent<SpriteRenderer>();
             outlineRenderer.sprite = _playerOutlineSprite;
             outlineRenderer.color = PlayerOutlineColor;
-            outlineRenderer.sortingOrder = PlayerOutlineSortingOrder;
-            outlineRenderer.material = CreateJellyMaterial(GetPlayerJellyPhase(playerId) + 0.8f, 5.2f, 0.16f);
+            outlineRenderer.sortingOrder = PlayerSortingOrder - 1;
+            outlineRenderer.material = CreateJellyMaterial(UnityEngine.Random.Range(0f, Mathf.PI * 2f), 4.2f, 0.08f);
 
             var nameLabel = new GameObject("NameLabel");
             nameLabel.transform.SetParent(viewRoot.transform, false);
@@ -1426,6 +1613,7 @@ namespace SampleClient.Gameplay
                     : new Color(PlayerOutlineColor.r, PlayerOutlineColor.g, PlayerOutlineColor.b, 0.45f);
                 var scaleBoost = hasSpeedBoost || hasKnockbackBoost ? 1.08f : 1f;
                 Root.transform.localScale = new Vector3(PlayerVisualDiameter * scaleBoost, PlayerVisualDiameter * scaleBoost, 1f);
+                _outlineRenderer.transform.localScale = new Vector3(1.14f, 1.14f, 1f);
             }
 
             private static void UpdateMaterial(SpriteRenderer renderer, float time, float impactPulse, float wobbleScale)
@@ -1474,13 +1662,3 @@ namespace SampleClient.Gameplay
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
