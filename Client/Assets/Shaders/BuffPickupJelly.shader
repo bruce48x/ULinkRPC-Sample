@@ -1,4 +1,4 @@
-Shader "SampleClient/BuffPickupJelly"
+Shader "SampleClient/PlayerJelly"
 {
     Properties
     {
@@ -64,12 +64,13 @@ Shader "SampleClient/BuffPickupJelly"
 
                 float waveA = sin((local.y * 7.0) + t);
                 float waveB = cos((local.x * 6.0) - (t * 1.15));
+                float waveC = sin(((local.x + local.y) * 8.5) + (t * 0.85));
                 float squash = sin(t * 1.6);
 
-                local.x += waveA * _WobbleAmount * edge * 0.08;
-                local.y += waveB * _WobbleAmount * edge * 0.08;
-                local.x *= 1.0 + (squash * _WobbleAmount * 0.09);
-                local.y *= 1.0 - (squash * _WobbleAmount * 0.09);
+                local.x += ((waveA * 0.75) + (waveC * 0.25)) * _WobbleAmount * edge * 0.18;
+                local.y += ((waveB * 0.75) - (waveC * 0.25)) * _WobbleAmount * edge * 0.18;
+                local.x *= 1.0 + (squash * _WobbleAmount * 0.18);
+                local.y *= 1.0 - (squash * _WobbleAmount * 0.18);
 
                 o.vertex = UnityObjectToClipPos(float4(local, v.vertex.z, 1.0));
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
@@ -80,6 +81,12 @@ Shader "SampleClient/BuffPickupJelly"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed4 c = tex2D(_MainTex, i.uv) * i.color;
+                float2 centered = (i.uv - 0.5) * 2.0;
+                float radial = saturate(length(centered));
+                float rim = smoothstep(0.42, 0.95, radial);
+                float highlight = saturate(1.0 - length(centered - float2(-0.18, 0.22)) * 1.9);
+                c.rgb = lerp(c.rgb, c.rgb * 1.18, rim * 0.22);
+                c.rgb += highlight * 0.16 * c.a;
                 c.rgb *= c.a;
                 return c;
             }

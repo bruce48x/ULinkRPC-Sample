@@ -38,7 +38,9 @@ namespace SampleClient.Gameplay
         private const float PlayerScoreOffsetY = -0.13f;
         private const float PickupPulseAmplitude = 0.08f;
         private const float PickupPulseFrequency = 3.2f;
-        private const string JellyShaderName = "SampleClient/BuffPickupJelly";
+        private const float PickupAbsorbDurationSeconds = 0.26f;
+        private const string JellyShaderName = "SampleClient/PlayerJelly";
+        private const string PickupAbsorbShaderName = "SampleClient/PickupAbsorb";
         private const int PlayerSortingOrder = 20;
         private const int PlayerOutlineSortingOrder = 25;
         private const int PlayerTextBackdropSortingOrder = 28;
@@ -116,6 +118,7 @@ namespace SampleClient.Gameplay
         private Sprite _playerSprite = null!;
         private Sprite _playerOutlineSprite = null!;
         private Shader? _jellyShader;
+        private Shader? _pickupAbsorbShader;
         private string _status = "\u8fde\u63a5\u4e2d...";
         private string _eventMessage = "\u7b49\u5f85\u73a9\u5bb6\u52a0\u5165";
         private float _eventMessageUntil;
@@ -844,6 +847,7 @@ namespace SampleClient.Gameplay
             }
 
             var activeIds = new HashSet<string>(StringComparer.Ordinal);
+            var collectedPickups = new Dictionary<PickupType, string>();
             foreach (var player in worldState.Players)
             {
                 activeIds.Add(player.PlayerId);
@@ -938,7 +942,7 @@ namespace SampleClient.Gameplay
                 }
             }
 
-            ApplyPickupState(worldState);
+            ApplyPickupState(worldState, collectedPickups);
             Debug.Log($"[DotArena] ApplyWorldState complete tick={worldState.Tick}, views={_views.Count}, renders={_renderStates.Count}");
         }
 
@@ -1024,7 +1028,7 @@ namespace SampleClient.Gameplay
             foreach (var pickupView in _pickupViews.Values)
             {
                 var pulse = 1f + (Mathf.Sin(Time.time * PickupPulseFrequency) * PickupPulseAmplitude);
-                pickupView.Root.transform.localScale = new Vector3(pickupScale * pulse, pickupScale * pulse, 1f);
+                pickupView.UpdateVisual(Time.time, pickupScale * pulse, PickupAbsorbDurationSeconds);
             }
 
             foreach (var dotView in _views.Values)
@@ -1357,8 +1361,9 @@ namespace SampleClient.Gameplay
             _singlePlayerTickAccumulator = 0f;
         }
 
-        private void ApplyPickupState(WorldState worldState)
+        private void ApplyPickupState(WorldState worldState, Dictionary<PickupType, string> collectedPickups)
         {
+            var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
             var activeTypes = new HashSet<PickupType>();
             foreach (var pickup in worldState.Pickups)
             {
@@ -1369,17 +1374,62 @@ namespace SampleClient.Gameplay
                     _pickupViews.Add(pickup.Type, view);
                 }
 
-                view.Root.SetActive(true);
-                view.Root.transform.position = new Vector3(pickup.X, pickup.Y, 0f);
+                view.ShowAt(new Vector3(pickup.X, pickup.Y, 0f), pickupScale);
             }
 
             foreach (var entry in _pickupViews)
             {
-                if (!activeTypes.Contains(entry.Key))
+                if (activeTypes.Contains(entry.Key))
                 {
-                    entry.Value.Root.SetActive(false);
+                    continue;
                 }
+
+                if (entry.Value.IsAbsorbing)
+                {
+                    continue;
+                }
+
+                if (TryGetPickupAbsorbTarget(entry.Key, collectedPickups, entry.Value.Root.transform.position, out var absorbTarget))
+                {
+                    entry.Value.StartAbsorb(absorbTarget, Time.time, pickupScale);
+                    continue;
+                }
+
+                entry.Value.Root.SetActive(false);
             }
+        }
+
+        private bool TryGetPickupAbsorbTarget(PickupType pickupType, Dictionary<PickupType, string> collectedPickups, Vector3 pickupPosition, out Vector3 targetPosition)
+        {
+            if (collectedPickups.TryGetValue(pickupType, out var collectorId) &&
+                _views.TryGetValue(collectorId, out var collectorView))
+            {
+                var collectorPosition = collectorView.GetPosition();
+                targetPosition = new Vector3(collectorPosition.x, collectorPosition.y, 0f);
+                return true;
+            }
+
+            var bestDistance = float.MaxValue;
+            targetPosition = default;
+            foreach (var entry in _views)
+            {
+                if (!_renderStates.TryGetValue(entry.Key, out var renderState) || !renderState.Alive)
+                {
+                    continue;
+                }
+
+                var candidate = entry.Value.GetPosition();
+                var distance = (candidate - new Vector2(pickupPosition.x, pickupPosition.y)).sqrMagnitude;
+                if (distance >= bestDistance)
+                {
+                    continue;
+                }
+
+                bestDistance = distance;
+                targetPosition = new Vector3(candidate.x, candidate.y, 0f);
+            }
+
+            return bestDistance < float.MaxValue;
         }
 
         private Vector2 ReadMoveVector()
@@ -1584,17 +1634,21 @@ namespace SampleClient.Gameplay
             var pickupRoot = new GameObject($"{pickupType}Pickup");
             pickupRoot.transform.SetParent(transform, false);
 
+            var pickupColor = GetPickupColor(pickupType);
             var renderer = pickupRoot.AddComponent<SpriteRenderer>();
             renderer.sprite = _playerSprite;
-            renderer.color = GetPickupColor(pickupType);
+            renderer.color = pickupColor;
             renderer.sortingOrder = PickupSortingOrder;
+            renderer.material = CreatePickupAbsorbMaterial(pickupColor);
+
             var glow = new GameObject("Glow");
             glow.transform.SetParent(pickupRoot.transform, false);
             glow.transform.localPosition = new Vector3(0f, 0f, 0.01f);
+            glow.transform.localScale = Vector3.one * 1.24f;
 
             var glowRenderer = glow.AddComponent<SpriteRenderer>();
             glowRenderer.sprite = _playerOutlineSprite;
-            glowRenderer.color = Color.Lerp(GetPickupColor(pickupType), Color.white, 0.35f);
+            glowRenderer.color = Color.Lerp(pickupColor, Color.white, 0.35f);
             glowRenderer.sortingOrder = PickupSortingOrder - 1;
 
             var label = new GameObject("Label");
@@ -1614,6 +1668,31 @@ namespace SampleClient.Gameplay
 
             pickupRoot.SetActive(false);
             return new PickupView(pickupRoot, renderer, glowRenderer, labelText);
+        }
+
+        private Material CreatePickupAbsorbMaterial(Color baseColor)
+        {
+            if (_pickupAbsorbShader == null)
+            {
+                _pickupAbsorbShader = Shader.Find(PickupAbsorbShaderName);
+            }
+
+            var shader = _pickupAbsorbShader != null ? _pickupAbsorbShader : Shader.Find("Sprites/Default");
+            var material = new Material(shader)
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+
+            if (_pickupAbsorbShader != null)
+            {
+                material.SetFloat("_Dissolve", 0f);
+                if (material.HasProperty("_EdgeColor"))
+                {
+                    material.SetColor("_EdgeColor", Color.Lerp(baseColor, Color.white, 0.55f));
+                }
+            }
+
+            return material;
         }
 
         private Material CreateJellyMaterial(float phase, float wobbleSpeed, float wobbleAmount)
@@ -2134,8 +2213,8 @@ namespace SampleClient.Gameplay
                     return;
                 }
 
-                var wobble = (0.06f + (impactPulse * 0.34f)) * wobbleScale;
-                var speed = 3.6f + (impactPulse * 7.5f);
+                var wobble = (0.18f + (impactPulse * 0.62f)) * wobbleScale;
+                var speed = 4.8f + (impactPulse * 9.5f);
                 material.SetFloat("_WobbleAmount", wobble);
                 material.SetFloat("_WobbleSpeed", speed + (Mathf.Sin(time * 1.3f) * 0.15f));
             }
@@ -2143,18 +2222,110 @@ namespace SampleClient.Gameplay
 
         private sealed class PickupView
         {
+            private readonly Color _baseGlowColor;
+            private readonly Color _baseLabelColor;
+            private Vector3 _absorbStartPosition;
+            private Vector3 _absorbTargetPosition;
+            private float _absorbStartedAt;
+            private bool _isAbsorbing;
+
             public PickupView(GameObject root, SpriteRenderer renderer, SpriteRenderer glowRenderer, TextMesh labelText)
             {
                 Root = root;
                 Renderer = renderer;
                 GlowRenderer = glowRenderer;
                 LabelText = labelText;
+                _baseGlowColor = glowRenderer.color;
+                _baseLabelColor = labelText.color;
             }
 
             public GameObject Root { get; }
             public SpriteRenderer Renderer { get; }
             public SpriteRenderer GlowRenderer { get; }
             public TextMesh LabelText { get; }
+            public bool IsAbsorbing => _isAbsorbing;
+
+            public void ShowAt(Vector3 position, float scale)
+            {
+                _isAbsorbing = false;
+                Root.SetActive(true);
+                Root.transform.position = position;
+                Root.transform.localScale = new Vector3(scale, scale, 1f);
+                GlowRenderer.transform.localScale = Vector3.one * 1.24f;
+
+                var glowColor = _baseGlowColor;
+                glowColor.a = _baseGlowColor.a;
+                GlowRenderer.color = glowColor;
+
+                var labelColor = _baseLabelColor;
+                labelColor.a = _baseLabelColor.a;
+                LabelText.color = labelColor;
+
+                var material = Renderer.material;
+                if (material != null && material.HasProperty("_Dissolve"))
+                {
+                    material.SetFloat("_Dissolve", 0f);
+                }
+            }
+
+            public void StartAbsorb(Vector3 targetPosition, float time, float scale)
+            {
+                if (!Root.activeSelf)
+                {
+                    return;
+                }
+
+                _isAbsorbing = true;
+                _absorbStartedAt = time;
+                _absorbStartPosition = Root.transform.position;
+                _absorbTargetPosition = targetPosition;
+                Root.transform.localScale = new Vector3(scale, scale, 1f);
+
+                var material = Renderer.material;
+                if (material != null && material.HasProperty("_Dissolve"))
+                {
+                    material.SetFloat("_Dissolve", 0f);
+                }
+            }
+
+            public void UpdateVisual(float time, float pulseScale, float absorbDurationSeconds)
+            {
+                if (!_isAbsorbing)
+                {
+                    if (Root.activeSelf)
+                    {
+                        Root.transform.localScale = new Vector3(pulseScale, pulseScale, 1f);
+                    }
+                    return;
+                }
+
+                var progress = Mathf.Clamp01((time - _absorbStartedAt) / absorbDurationSeconds);
+                var eased = 1f - Mathf.Pow(1f - progress, 3f);
+                Root.transform.position = Vector3.Lerp(_absorbStartPosition, _absorbTargetPosition, eased);
+                var scale = Mathf.Lerp(pulseScale, pulseScale * 0.24f, eased);
+                Root.transform.localScale = new Vector3(scale, scale, 1f);
+                GlowRenderer.transform.localScale = Vector3.one * Mathf.Lerp(1.24f, 0.42f, eased);
+
+                var material = Renderer.material;
+                if (material != null && material.HasProperty("_Dissolve"))
+                {
+                    material.SetFloat("_Dissolve", Mathf.SmoothStep(0f, 1f, progress));
+                }
+
+                var glowColor = _baseGlowColor;
+                glowColor.a = Mathf.Lerp(_baseGlowColor.a, 0f, eased);
+                GlowRenderer.color = glowColor;
+
+                var labelColor = _baseLabelColor;
+                labelColor.a = Mathf.Lerp(_baseLabelColor.a, 0f, Mathf.Clamp01(progress * 1.25f));
+                LabelText.color = labelColor;
+
+                if (progress >= 1f)
+                {
+                    _isAbsorbing = false;
+                    Root.SetActive(false);
+                }
+            }
         }
 
         private enum EntryMenuState
