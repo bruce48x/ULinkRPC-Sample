@@ -8,6 +8,7 @@ using Shared.Gameplay;
 using Shared.Interfaces;
 using ULinkRPC.Client;
 using UnityEngine;
+using UnityEngine.UI;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -48,6 +49,8 @@ namespace SampleClient.Gameplay
         private const float PickupLabelScale = 0.45f;
         private const float PlayerTextCharacterSize = 0.08f;
         private const float InputSendIntervalSeconds = 0.05f;
+        private const float SinglePlayerTickSeconds = 0.05f;
+        private const int MaxSinglePlayerCatchUpTicks = 4;
         private const float InterpolationDurationSeconds = 0.1f;
 
         private static readonly Color BackgroundColor = new(0.02f, 0.03f, 0.05f, 1f);
@@ -81,6 +84,7 @@ namespace SampleClient.Gameplay
         private readonly Dictionary<string, DotView> _views = new(StringComparer.Ordinal);
         private readonly Dictionary<string, PlayerRenderState> _renderStates = new(StringComparer.Ordinal);
         private readonly Dictionary<PickupType, PickupView> _pickupViews = new();
+        private readonly Dictionary<string, PlayerOverlayView> _playerOverlayViews = new(StringComparer.Ordinal);
 
         private RpcClient? _connection;
         private IPlayerService? _playerService;
@@ -94,6 +98,7 @@ namespace SampleClient.Gameplay
         private int _inputTick;
         private bool _dashQueued;
         private float _nextInputAt;
+        private float _singlePlayerTickAccumulator;
 
         private WorldState? _pendingWorldState;
         private readonly Queue<PlayerDead> _pendingDeaths = new();
@@ -110,6 +115,37 @@ namespace SampleClient.Gameplay
         private int _lastLoggedPlayerCount = -1;
         private bool _shutdownStarted;
         private string _lastLoggedInputVector = string.Empty;
+        private GameObject? _sceneUiRoot;
+        private GameObject? _hudPanel;
+        private GameObject? _entryPanel;
+        private RectTransform? _overlayLayer;
+        private GameObject? _modeSelectPanel;
+        private GameObject? _multiplayerPanel;
+        private Text? _hudTitleText;
+        private Text? _hudStatusText;
+        private Text? _hudPlayerText;
+        private Text? _hudTickText;
+        private Text? _hudModeText;
+        private Text? _hudHintText;
+        private Text? _hudEventText;
+        private Text? _entryTitleText;
+        private Text? _entryStatusText;
+        private Text? _modeSelectDescriptionText;
+        private Text? _multiplayerSubtitleText;
+        private Text? _accountLabelText;
+        private Text? _passwordLabelText;
+        private Text? _accountPlaceholderText;
+        private Text? _passwordPlaceholderText;
+        private Button? _singlePlayerButton;
+        private Button? _multiplayerButton;
+        private Button? _matchButton;
+        private Button? _backButton;
+        private Text? _singlePlayerButtonText;
+        private Text? _multiplayerButtonText;
+        private Text? _matchButtonText;
+        private Text? _backButtonText;
+        private InputField? _accountInputField;
+        private InputField? _passwordInputField;
 #if UNITY_EDITOR
         private Vector2 _editorMoveOverride;
         private bool _editorDashOverride;
@@ -125,6 +161,8 @@ namespace SampleClient.Gameplay
             InitializeConnectionMode();
             ConfigureCamera();
             BuildArena();
+            BindSceneUi();
+            RefreshSceneUi();
         }
 
         private void Update()
@@ -135,6 +173,7 @@ namespace SampleClient.Gameplay
             TickLocalMatch();
             ApplyPendingCallbacks();
             UpdateViews();
+            RefreshSceneUi();
         }
 
         private void OnDestroy()
@@ -150,6 +189,11 @@ namespace SampleClient.Gameplay
 
         private void OnGUI()
         {
+            if (_sceneUiRoot != null)
+            {
+                return;
+            }
+
             if (!HasActiveSession)
             {
                 DrawEntryMenu();
@@ -351,6 +395,247 @@ namespace SampleClient.Gameplay
 
             GUI.enabled = previousEnabled;
         }
+
+        public void OnUiSinglePlayerSelected()
+        {
+            if (_isConnecting)
+            {
+                return;
+            }
+
+            _singlePlayerStartRequested = true;
+        }
+
+        public void OnUiMultiplayerSelected()
+        {
+            if (_isConnecting)
+            {
+                return;
+            }
+
+            _entryMenuState = EntryMenuState.MultiplayerAuth;
+            _status = "Enter account credentials";
+            _eventMessage = "Press Match to connect";
+            SyncSceneUiInputs();
+            RefreshSceneUi();
+        }
+
+        public void OnUiBackToModeSelect()
+        {
+            if (_isConnecting)
+            {
+                return;
+            }
+
+            _entryMenuState = EntryMenuState.ModeSelect;
+            _status = "Select mode";
+            _eventMessage = "Choose single player or multiplayer";
+            RefreshSceneUi();
+        }
+
+        public void OnUiConnectRequested()
+        {
+            if (_isConnecting)
+            {
+                return;
+            }
+
+            _ = ConnectAsync();
+        }
+
+        public void OnUiAccountChanged(string value)
+        {
+            _account = value;
+        }
+
+        public void OnUiPasswordChanged(string value)
+        {
+            _password = value;
+        }
+
+        private void BindSceneUi()
+        {
+            _sceneUiRoot = FindSceneUiObject("SceneUI");
+            if (_sceneUiRoot == null)
+            {
+                return;
+            }
+
+            _overlayLayer = FindSceneUiRect("SceneUI/OverlayLayer");
+            _hudPanel = FindSceneUiObject("SceneUI/HUDPanel");
+            _entryPanel = FindSceneUiObject("SceneUI/EntryPanel");
+            _modeSelectPanel = FindSceneUiObject("SceneUI/EntryPanel/ModeSelectPanel");
+            _multiplayerPanel = FindSceneUiObject("SceneUI/EntryPanel/MultiplayerPanel");
+
+            _hudTitleText = FindSceneUiText("SceneUI/HUDPanel/TitleText");
+            _hudStatusText = FindSceneUiText("SceneUI/HUDPanel/StatusText");
+            _hudPlayerText = FindSceneUiText("SceneUI/HUDPanel/PlayerText");
+            _hudTickText = FindSceneUiText("SceneUI/HUDPanel/TickText");
+            _hudModeText = FindSceneUiText("SceneUI/HUDPanel/ModeText");
+            _hudHintText = FindSceneUiText("SceneUI/HUDPanel/HintText");
+            _hudEventText = FindSceneUiText("SceneUI/HUDPanel/EventText");
+
+            _entryTitleText = FindSceneUiText("SceneUI/EntryPanel/TitleText");
+            _entryStatusText = FindSceneUiText("SceneUI/EntryPanel/StatusText");
+            _modeSelectDescriptionText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/DescriptionText");
+
+            _multiplayerSubtitleText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/SubtitleText");
+            _accountLabelText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountLabel");
+            _passwordLabelText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordLabel");
+            _accountPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountInput/Placeholder");
+            _passwordPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput/Placeholder");
+
+            _singlePlayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/SinglePlayerButton");
+            _multiplayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton");
+            _matchButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/MatchButton");
+            _backButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/BackButton");
+
+            _singlePlayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/SinglePlayerButton/Label");
+            _multiplayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton/Label");
+            _matchButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/MatchButton/Label");
+            _backButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/BackButton/Label");
+
+            _accountInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/AccountInput");
+            _passwordInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput");
+
+            if (_singlePlayerButton != null)
+            {
+                _singlePlayerButton.onClick.RemoveAllListeners();
+                _singlePlayerButton.onClick.AddListener(OnUiSinglePlayerSelected);
+            }
+
+            if (_multiplayerButton != null)
+            {
+                _multiplayerButton.onClick.RemoveAllListeners();
+                _multiplayerButton.onClick.AddListener(OnUiMultiplayerSelected);
+            }
+
+            if (_matchButton != null)
+            {
+                _matchButton.onClick.RemoveAllListeners();
+                _matchButton.onClick.AddListener(OnUiConnectRequested);
+            }
+
+            if (_backButton != null)
+            {
+                _backButton.onClick.RemoveAllListeners();
+                _backButton.onClick.AddListener(OnUiBackToModeSelect);
+            }
+
+            if (_accountInputField != null)
+            {
+                _accountInputField.onValueChanged.RemoveAllListeners();
+                _accountInputField.onValueChanged.AddListener(OnUiAccountChanged);
+            }
+
+            if (_passwordInputField != null)
+            {
+                _passwordInputField.onValueChanged.RemoveAllListeners();
+                _passwordInputField.onValueChanged.AddListener(OnUiPasswordChanged);
+            }
+
+            SyncSceneUiInputs();
+        }
+
+        private void RefreshSceneUi()
+        {
+            if (_sceneUiRoot == null)
+            {
+                return;
+            }
+
+            var hasSession = HasActiveSession;
+            if (_hudPanel != null) _hudPanel.SetActive(hasSession);
+            if (_entryPanel != null) _entryPanel.SetActive(!hasSession);
+            if (_modeSelectPanel != null) _modeSelectPanel.SetActive(_entryMenuState == EntryMenuState.ModeSelect);
+            if (_multiplayerPanel != null) _multiplayerPanel.SetActive(_entryMenuState == EntryMenuState.MultiplayerAuth);
+
+            SetText(_hudTitleText, "ULinkRPC Dot Arena");
+            SetText(_hudStatusText, $"Status: {_status}");
+            SetText(_hudPlayerText, $"Player: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   Score: {GetLocalPlayerScoreText()}");
+            SetText(_hudTickText, $"Tick: {_lastWorldTick}   Players: {_views.Count}   Buff: {GetLocalPlayerBuffText()}");
+            SetText(_hudModeText, _sessionMode == SessionMode.SinglePlayer
+                ? "Mode: Single Player"
+                : $"Endpoint: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
+            SetText(_hudHintText, "W/A/S/D move, Space dash. Server state is authoritative.");
+            SetText(_hudEventText, $"Event: {GetCurrentEventMessage()}");
+
+            SetText(_entryTitleText, "Dot Arena");
+            SetText(_entryStatusText, _status);
+            SetText(_modeSelectDescriptionText, "Choose a mode. Single player enters immediately and fills to four with AI.");
+            SetText(_multiplayerSubtitleText, "Multiplayer Match");
+            SetText(_accountLabelText, "Account");
+            SetText(_passwordLabelText, "Password");
+            SetText(_accountPlaceholderText, "Account");
+            SetText(_passwordPlaceholderText, "Password");
+            SetText(_singlePlayerButtonText, "Single Player");
+            SetText(_multiplayerButtonText, "Multiplayer");
+            SetText(_matchButtonText, _isConnecting ? "Matching..." : "Match");
+            SetText(_backButtonText, "Back");
+
+            if (_singlePlayerButton != null) _singlePlayerButton.interactable = !_isConnecting;
+            if (_multiplayerButton != null) _multiplayerButton.interactable = !_isConnecting;
+            if (_matchButton != null) _matchButton.interactable = !_isConnecting;
+            if (_backButton != null) _backButton.interactable = !_isConnecting;
+            if (_accountInputField != null) _accountInputField.interactable = !_isConnecting;
+            if (_passwordInputField != null) _passwordInputField.interactable = !_isConnecting;
+
+            SyncSceneUiInputs();
+        }
+
+        private void SyncSceneUiInputs()
+        {
+            if (_accountInputField != null && !_accountInputField.isFocused && _accountInputField.text != _account)
+            {
+                _accountInputField.SetTextWithoutNotify(_account);
+            }
+
+            if (_passwordInputField != null && !_passwordInputField.isFocused && _passwordInputField.text != _password)
+            {
+                _passwordInputField.SetTextWithoutNotify(_password);
+            }
+        }
+
+        private GameObject? FindSceneUiObject(string path)
+        {
+            var target = transform.Find(path);
+            return target != null ? target.gameObject : null;
+        }
+
+        private Text? FindSceneUiText(string path)
+        {
+            var target = transform.Find(path);
+            return target != null ? target.GetComponent<Text>() : null;
+        }
+
+        private Button? FindSceneUiButton(string path)
+        {
+            var target = transform.Find(path);
+            return target != null ? target.GetComponent<Button>() : null;
+        }
+
+        private InputField? FindSceneUiInputField(string path)
+        {
+            var target = transform.Find(path);
+            return target != null ? target.GetComponent<InputField>() : null;
+        }
+
+        private RectTransform? FindSceneUiRect(string path)
+        {
+            var target = transform.Find(path);
+            return target != null ? target.GetComponent<RectTransform>() : null;
+        }
+
+        private static void SetText(Text? label, string value)
+        {
+            if (label == null || label.text == value)
+            {
+                return;
+            }
+
+            label.text = value;
+        }
+
         public void OnWorldState(WorldState worldState)
         {
             lock (_callbackLock)
@@ -515,12 +800,12 @@ namespace SampleClient.Gameplay
                 var targetPosition = new Vector2(player.X, player.Y);
                 var isNewView = false;
                 var isNewRenderState = false;
-                var shouldSnapToTarget = _sessionMode == SessionMode.SinglePlayer;
 
                 if (!_views.TryGetValue(player.PlayerId, out var view))
                 {
                     view = CreateView(player.PlayerId);
                     _views.Add(player.PlayerId, view);
+                    EnsurePlayerOverlay(player.PlayerId);
                     view.SetPosition(targetPosition);
                     isNewView = true;
                     Debug.Log($"[DotArena] Created view for {player.PlayerId}, totalViews={_views.Count}");
@@ -541,7 +826,7 @@ namespace SampleClient.Gameplay
                     currentPosition = targetPosition;
                 }
 
-                renderState.PreviousPosition = shouldSnapToTarget ? targetPosition : currentPosition;
+                renderState.PreviousPosition = currentPosition;
                 renderState.TargetPosition = targetPosition;
                 renderState.ReceivedAt = Time.time;
                 renderState.Alive = player.Alive;
@@ -553,6 +838,11 @@ namespace SampleClient.Gameplay
                 renderState.KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds;
 
                 view.SetIdentity(player.PlayerId, player.Score);
+                if (_playerOverlayViews.TryGetValue(player.PlayerId, out var overlay))
+                {
+                    overlay.NameText.text = player.PlayerId;
+                    overlay.ScoreText.text = $"score: {FormatScore(player.Score)}";
+                }
                 if (previousState != PlayerLifeState.Stunned && player.State == PlayerLifeState.Stunned)
                 {
                     view.TriggerCollisionJelly();
@@ -591,6 +881,11 @@ namespace SampleClient.Gameplay
                 Destroy(_views[removedId].Root);
                 _views.Remove(removedId);
                 _renderStates.Remove(removedId);
+                if (_playerOverlayViews.TryGetValue(removedId, out var overlay))
+                {
+                    Destroy(overlay.Root);
+                    _playerOverlayViews.Remove(removedId);
+                }
             }
 
             ApplyPickupState(worldState);
@@ -629,17 +924,31 @@ namespace SampleClient.Gameplay
                 return;
             }
 
-            var step = _localMatch.Tick(Time.deltaTime);
-            ApplyWorldState(step.WorldState);
+            _singlePlayerTickAccumulator += Mathf.Min(Time.deltaTime, SinglePlayerTickSeconds * MaxSinglePlayerCatchUpTicks);
 
-            foreach (var deadEvent in step.Deaths)
+            var catchUpTicks = 0;
+            while (_singlePlayerTickAccumulator >= SinglePlayerTickSeconds && catchUpTicks < MaxSinglePlayerCatchUpTicks)
             {
-                HandleDeadEvent(deadEvent);
+                _singlePlayerTickAccumulator -= SinglePlayerTickSeconds;
+                catchUpTicks++;
+
+                var step = _localMatch.Tick(SinglePlayerTickSeconds);
+                ApplyWorldState(step.WorldState);
+
+                foreach (var deadEvent in step.Deaths)
+                {
+                    HandleDeadEvent(deadEvent);
+                }
+
+                if (step.MatchEnd != null)
+                {
+                    HandleMatchEnd(step.MatchEnd);
+                }
             }
 
-            if (step.MatchEnd != null)
+            if (catchUpTicks == MaxSinglePlayerCatchUpTicks && _singlePlayerTickAccumulator > SinglePlayerTickSeconds)
             {
-                HandleMatchEnd(step.MatchEnd);
+                _singlePlayerTickAccumulator = 0f;
             }
         }
 
@@ -652,20 +961,14 @@ namespace SampleClient.Gameplay
                     continue;
                 }
 
-                Vector2 position;
-                if (_sessionMode == SessionMode.SinglePlayer)
-                {
-                    position = renderState.TargetPosition;
-                }
-                else
-                {
-                    var elapsed = Mathf.Clamp01((Time.time - renderState.ReceivedAt) / InterpolationDurationSeconds);
-                    var smoothed = elapsed * elapsed * (3f - (2f * elapsed));
-                    position = Vector2.Lerp(renderState.PreviousPosition, renderState.TargetPosition, smoothed);
-                }
+                var elapsed = Mathf.Clamp01((Time.time - renderState.ReceivedAt) / InterpolationDurationSeconds);
+                var smoothed = elapsed * elapsed * (3f - (2f * elapsed));
+                var position = Vector2.Lerp(renderState.PreviousPosition, renderState.TargetPosition, smoothed);
 
                 entry.Value.SetPosition(position);
             }
+
+            UpdatePlayerOverlayViews();
 
             var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
             foreach (var pickupView in _pickupViews.Values)
@@ -927,6 +1230,7 @@ namespace SampleClient.Gameplay
             _eventMessage = "正在进入本地单机模式";
             _lastWorldTick = -1;
             _inputTick = 0;
+            _singlePlayerTickAccumulator = 0f;
             Debug.Log("[DotArena] BeginSinglePlayerMatch");
             ApplyWorldState(_localMatch.CreateWorldState());
             _status = $"单机模式: {_localPlayerId}";
@@ -938,6 +1242,11 @@ namespace SampleClient.Gameplay
             _playerSprite = CreateCircleSprite();
             _playerOutlineSprite = CreateCircleOutlineSprite();
             _jellyShader = Shader.Find(JellyShaderName);
+
+            if (transform.Find("ArenaRoot") != null)
+            {
+                return;
+            }
 
             var arenaRoot = new GameObject("ArenaRoot");
             arenaRoot.transform.SetParent(transform, false);
@@ -979,8 +1288,14 @@ namespace SampleClient.Gameplay
                 Destroy(pickupView.Root);
             }
 
+            foreach (var overlay in _playerOverlayViews.Values)
+            {
+                Destroy(overlay.Root);
+            }
+
             _views.Clear();
             _pickupViews.Clear();
+            _playerOverlayViews.Clear();
             _renderStates.Clear();
             _pendingWorldState = null;
             _pendingDeaths.Clear();
@@ -989,6 +1304,7 @@ namespace SampleClient.Gameplay
             _lastLoggedPlayerCount = -1;
             _dashQueued = false;
             _nextInputAt = 0f;
+            _singlePlayerTickAccumulator = 0f;
         }
 
         private void ApplyPickupState(WorldState worldState)
@@ -1520,6 +1836,116 @@ namespace SampleClient.Gameplay
 
         private static float PlayerVisualDiameter => GameplayConfig.PlayerVisualRadius * 2f;
 
+        private void EnsurePlayerOverlay(string playerId)
+        {
+            if (_overlayLayer == null || _playerOverlayViews.ContainsKey(playerId))
+            {
+                return;
+            }
+
+            var root = new GameObject($"{playerId}Overlay", typeof(RectTransform));
+            root.transform.SetParent(_overlayLayer, false);
+
+            var rootRect = (RectTransform)root.transform;
+            rootRect.anchorMin = new Vector2(0f, 1f);
+            rootRect.anchorMax = new Vector2(0f, 1f);
+            rootRect.pivot = new Vector2(0.5f, 0.5f);
+            rootRect.sizeDelta = new Vector2(140f, 40f);
+
+            var nameObject = new GameObject("NameText", typeof(RectTransform), typeof(Text));
+            nameObject.transform.SetParent(root.transform, false);
+            var nameRect = (RectTransform)nameObject.transform;
+            nameRect.anchorMin = new Vector2(0.5f, 0.5f);
+            nameRect.anchorMax = new Vector2(0.5f, 0.5f);
+            nameRect.pivot = new Vector2(0.5f, 0.5f);
+            nameRect.anchoredPosition = new Vector2(0f, -10f);
+            nameRect.sizeDelta = new Vector2(140f, 20f);
+
+            var nameText = nameObject.GetComponent<Text>();
+            nameText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            nameText.fontSize = 16;
+            nameText.fontStyle = FontStyle.Bold;
+            nameText.alignment = TextAnchor.MiddleCenter;
+            nameText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            nameText.verticalOverflow = VerticalWrapMode.Overflow;
+            nameText.color = new Color(0.94f, 0.97f, 1f, 1f);
+
+            var scoreObject = new GameObject("ScoreText", typeof(RectTransform), typeof(Text));
+            scoreObject.transform.SetParent(root.transform, false);
+            var scoreRect = (RectTransform)scoreObject.transform;
+            scoreRect.anchorMin = new Vector2(0.5f, 0.5f);
+            scoreRect.anchorMax = new Vector2(0.5f, 0.5f);
+            scoreRect.pivot = new Vector2(0.5f, 0.5f);
+            scoreRect.anchoredPosition = new Vector2(0f, 8f);
+            scoreRect.sizeDelta = new Vector2(140f, 18f);
+
+            var scoreText = scoreObject.GetComponent<Text>();
+            scoreText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            scoreText.fontSize = 14;
+            scoreText.fontStyle = FontStyle.Bold;
+            scoreText.alignment = TextAnchor.MiddleCenter;
+            scoreText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            scoreText.verticalOverflow = VerticalWrapMode.Overflow;
+            scoreText.color = new Color(1f, 0.97f, 0.78f, 1f);
+
+            _playerOverlayViews.Add(playerId, new PlayerOverlayView(root, rootRect, nameText, scoreText));
+        }
+
+        private void UpdatePlayerOverlayViews()
+        {
+            if (_overlayLayer == null)
+            {
+                return;
+            }
+
+            var camera = Camera.main;
+            if (camera == null)
+            {
+                foreach (var overlay in _playerOverlayViews.Values)
+                {
+                    overlay.Root.SetActive(false);
+                }
+
+                return;
+            }
+
+            var pixelsPerWorldUnit = Screen.height / (camera.orthographicSize * 2f);
+            var diameterPixels = PlayerVisualDiameter * pixelsPerWorldUnit;
+            var labelWidth = Mathf.Max(96f, diameterPixels * 2f);
+            var nameHeight = Mathf.Max(18f, diameterPixels * 0.36f);
+            var scoreHeight = Mathf.Max(16f, diameterPixels * 0.3f);
+
+            foreach (var entry in _playerOverlayViews)
+            {
+                if (!_views.TryGetValue(entry.Key, out var view))
+                {
+                    entry.Value.Root.SetActive(false);
+                    continue;
+                }
+
+                var screenPosition = camera.WorldToScreenPoint(view.Root.transform.position);
+                if (screenPosition.z <= 0f)
+                {
+                    entry.Value.Root.SetActive(false);
+                    continue;
+                }
+
+                entry.Value.Root.SetActive(true);
+                entry.Value.RootRect.anchoredPosition = new Vector2(screenPosition.x, screenPosition.y);
+                entry.Value.RootRect.sizeDelta = new Vector2(labelWidth, nameHeight + scoreHeight + 4f);
+
+                var nameRect = entry.Value.NameText.rectTransform;
+                nameRect.sizeDelta = new Vector2(labelWidth, nameHeight);
+                nameRect.anchoredPosition = new Vector2(0f, nameHeight * 0.55f);
+                entry.Value.NameText.fontSize = Mathf.RoundToInt(Mathf.Clamp(diameterPixels * 0.24f, 14f, 22f));
+
+                var scoreRect = entry.Value.ScoreText.rectTransform;
+                scoreRect.sizeDelta = new Vector2(labelWidth, scoreHeight);
+                scoreRect.anchoredPosition = new Vector2(0f, -(scoreHeight * 0.55f));
+                entry.Value.ScoreText.fontSize = Mathf.RoundToInt(Mathf.Clamp(diameterPixels * 0.22f, 13f, 20f));
+            }
+        }
+
         private sealed class PlayerRenderState
         {
             public Vector2 PreviousPosition { get; set; }
@@ -1530,6 +1956,22 @@ namespace SampleClient.Gameplay
             public int Score { get; set; }
             public int SpeedBoostRemainingSeconds { get; set; }
             public int KnockbackBoostRemainingSeconds { get; set; }
+        }
+
+        private sealed class PlayerOverlayView
+        {
+            public PlayerOverlayView(GameObject root, RectTransform rootRect, Text nameText, Text scoreText)
+            {
+                Root = root;
+                RootRect = rootRect;
+                NameText = nameText;
+                ScoreText = scoreText;
+            }
+
+            public GameObject Root { get; }
+            public RectTransform RootRect { get; }
+            public Text NameText { get; }
+            public Text ScoreText { get; }
         }
 
         private sealed class DotView
