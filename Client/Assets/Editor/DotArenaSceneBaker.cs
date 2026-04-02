@@ -293,23 +293,18 @@ internal static class DotArenaSceneBaker
         return uiText;
     }
 
-    private static TMP_FontAsset? GetDefaultTmpFontAsset()
+    private static TMP_FontAsset GetDefaultTmpFontAsset()
     {
         return EnsureChineseTmpFontAsset();
     }
 
-    private static TMP_FontAsset? EnsureChineseTmpFontAsset()
+    private static TMP_FontAsset EnsureChineseTmpFontAsset()
     {
         var existing = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpChineseFontAssetPath);
         if (existing != null)
         {
             existing.TryAddCharacters(UiCharacterSet, out _);
             EditorUtility.SetDirty(existing);
-            if (TMP_Settings.instance != null && TMP_Settings.defaultFontAsset != existing)
-            {
-                TMP_Settings.defaultFontAsset = existing;
-                EditorUtility.SetDirty(TMP_Settings.instance);
-            }
             AssetDatabase.SaveAssets();
             return existing;
         }
@@ -340,17 +335,12 @@ internal static class DotArenaSceneBaker
         fontAsset.name = "DotArenaCJK SDF";
         fontAsset.TryAddCharacters(UiCharacterSet, out _);
         AssetDatabase.CreateAsset(fontAsset, TmpChineseFontAssetPath);
-        if (TMP_Settings.instance != null)
-        {
-            TMP_Settings.defaultFontAsset = fontAsset;
-            EditorUtility.SetDirty(TMP_Settings.instance);
-        }
         AssetDatabase.SaveAssets();
         AssetDatabase.ImportAsset(TmpChineseFontAssetPath, ImportAssetOptions.ForceUpdate);
         return AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpChineseFontAssetPath);
     }
 
-    private static Font? EnsureChineseSourceFontImported()
+    private static Font EnsureChineseSourceFontImported()
     {
         var existing = AssetDatabase.LoadAssetAtPath<Font>(TmpChineseSourceFontPath);
         if (existing != null)

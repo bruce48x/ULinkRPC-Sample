@@ -34,21 +34,26 @@ namespace SampleClient.Gameplay
         private const int WindowWidth = 1200;
         private const int WindowHeight = 600;
         private const float ArenaVisualPadding = 1.8f;
-        private const float PlayerNameOffsetY = 0.1f;
-        private const float PlayerScoreOffsetY = -0.14f;
+        private const float PlayerNameOffsetY = 0.11f;
+        private const float PlayerScoreOffsetY = -0.13f;
         private const float PickupPulseAmplitude = 0.08f;
         private const float PickupPulseFrequency = 3.2f;
         private const string JellyShaderName = "SampleClient/BuffPickupJelly";
         private const int PlayerSortingOrder = 20;
         private const int PlayerOutlineSortingOrder = 25;
+        private const int PlayerTextBackdropSortingOrder = 28;
         private const int PlayerTextSortingOrder = 30;
         private const int PickupSortingOrder = 12;
         private const int PickupLabelSortingOrder = 14;
         private const float PlayerTextDepth = -0.2f;
-        private const float PlayerNameScale = 0.12f;
-        private const float PlayerScoreScale = 0.1f;
+        private const float PlayerNameScale = 0.16f;
+        private const float PlayerScoreScale = 0.13f;
         private const float PickupLabelScale = 0.45f;
-        private const float PlayerTextCharacterSize = 0.08f;
+        private const float PlayerTextCharacterSize = 0.4f;
+        private const float PlayerNameBackdropWidth = 1.1f;
+        private const float PlayerNameBackdropHeight = 0.24f;
+        private const float PlayerScoreBackdropWidth = 0.8f;
+        private const float PlayerScoreBackdropHeight = 0.2f;
         private const float InputSendIntervalSeconds = 0.05f;
         private const float SinglePlayerTickSeconds = 0.05f;
         private const int MaxSinglePlayerCatchUpTicks = 4;
@@ -60,6 +65,7 @@ namespace SampleClient.Gameplay
         private static readonly Color BorderColor = new(1f, 0.84f, 0.31f, 0.24f);
         private static readonly Color DangerColor = new(1f, 0.24f, 0.24f, 0.08f);
         private static readonly Color PlayerOutlineColor = new(1f, 1f, 1f, 0.92f);
+        private static readonly Color PlayerTextBackdropColor = new(0.04f, 0.06f, 0.1f, 0.72f);
         private static readonly Color SpeedPickupColor = new(1f, 0.86f, 0.22f, 0.95f);
         private static readonly Color KnockbackPickupColor = new(1f, 0.22f, 0.22f, 0.95f);
         private static readonly ArenaConfig GameplayConfig = ArenaConfig.CreateDefault();
@@ -1499,6 +1505,15 @@ namespace SampleClient.Gameplay
             outlineRenderer.sortingOrder = PlayerSortingOrder - 1;
             outlineRenderer.material = CreateJellyMaterial(UnityEngine.Random.Range(0f, Mathf.PI * 2f), 4.2f, 0.08f);
 
+            var nameBackdrop = new GameObject("NameBackdrop");
+            nameBackdrop.transform.SetParent(viewRoot.transform, false);
+            nameBackdrop.transform.localPosition = new Vector3(0f, PlayerNameOffsetY, PlayerTextDepth + 0.01f);
+            nameBackdrop.transform.localScale = new Vector3(PlayerNameBackdropWidth, PlayerNameBackdropHeight, 1f);
+            var nameBackdropRenderer = nameBackdrop.AddComponent<SpriteRenderer>();
+            nameBackdropRenderer.sprite = _pixelSprite;
+            nameBackdropRenderer.color = PlayerTextBackdropColor;
+            nameBackdropRenderer.sortingOrder = PlayerTextBackdropSortingOrder;
+
             var nameLabel = new GameObject("NameLabel");
             nameLabel.transform.SetParent(viewRoot.transform, false);
             nameLabel.transform.localPosition = new Vector3(0f, PlayerNameOffsetY, PlayerTextDepth);
@@ -1511,8 +1526,17 @@ namespace SampleClient.Gameplay
             nameText.anchor = TextAnchor.MiddleCenter;
             nameText.alignment = TextAlignment.Center;
             nameText.fontStyle = FontStyle.Bold;
-            nameText.color = new Color(0.92f, 0.96f, 1f, 0.92f);
+            nameText.color = new Color(0.98f, 0.99f, 1f, 1f);
             ConfigureTextRenderer(nameText.GetComponent<MeshRenderer>(), PlayerTextSortingOrder);
+
+            var scoreBackdrop = new GameObject("ScoreBackdrop");
+            scoreBackdrop.transform.SetParent(viewRoot.transform, false);
+            scoreBackdrop.transform.localPosition = new Vector3(0f, PlayerScoreOffsetY, PlayerTextDepth + 0.01f);
+            scoreBackdrop.transform.localScale = new Vector3(PlayerScoreBackdropWidth, PlayerScoreBackdropHeight, 1f);
+            var scoreBackdropRenderer = scoreBackdrop.AddComponent<SpriteRenderer>();
+            scoreBackdropRenderer.sprite = _pixelSprite;
+            scoreBackdropRenderer.color = PlayerTextBackdropColor;
+            scoreBackdropRenderer.sortingOrder = PlayerTextBackdropSortingOrder;
 
             var scoreLabel = new GameObject("ScoreLabel");
             scoreLabel.transform.SetParent(viewRoot.transform, false);
@@ -1526,7 +1550,7 @@ namespace SampleClient.Gameplay
             scoreText.anchor = TextAnchor.MiddleCenter;
             scoreText.alignment = TextAlignment.Center;
             scoreText.fontStyle = FontStyle.Bold;
-            scoreText.color = new Color(1f, 0.97f, 0.78f, 0.95f);
+            scoreText.color = new Color(1f, 0.97f, 0.72f, 1f);
             ConfigureTextRenderer(scoreText.GetComponent<MeshRenderer>(), PlayerTextSortingOrder);
 
             var view = new DotView(viewRoot, renderer, outlineRenderer, nameText, scoreText);
