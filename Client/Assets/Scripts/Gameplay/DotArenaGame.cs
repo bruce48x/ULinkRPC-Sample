@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Shared.Gameplay;
 using Shared.Interfaces;
 using ULinkRPC.Client;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 #if ENABLE_INPUT_SYSTEM
@@ -62,6 +63,7 @@ namespace SampleClient.Gameplay
         private static readonly Color SpeedPickupColor = new(1f, 0.86f, 0.22f, 0.95f);
         private static readonly Color KnockbackPickupColor = new(1f, 0.22f, 0.22f, 0.95f);
         private static readonly ArenaConfig GameplayConfig = ArenaConfig.CreateDefault();
+        private const string TmpFallbackFontAssetResourcePath = "Fonts & Materials/DotArenaCJK SDF";
 
         private static readonly Color[] RemotePalette =
         {
@@ -108,8 +110,8 @@ namespace SampleClient.Gameplay
         private Sprite _playerSprite = null!;
         private Sprite _playerOutlineSprite = null!;
         private Shader? _jellyShader;
-        private string _status = "Connecting...";
-        private string _eventMessage = "等待玩家加入";
+        private string _status = "\u8fde\u63a5\u4e2d...";
+        private string _eventMessage = "\u7b49\u5f85\u73a9\u5bb6\u52a0\u5165";
         private float _eventMessageUntil;
         private int _lastWorldTick = -1;
         private int _lastLoggedPlayerCount = -1;
@@ -121,31 +123,32 @@ namespace SampleClient.Gameplay
         private RectTransform? _overlayLayer;
         private GameObject? _modeSelectPanel;
         private GameObject? _multiplayerPanel;
-        private Text? _hudTitleText;
-        private Text? _hudStatusText;
-        private Text? _hudPlayerText;
-        private Text? _hudTickText;
-        private Text? _hudModeText;
-        private Text? _hudHintText;
-        private Text? _hudEventText;
-        private Text? _entryTitleText;
-        private Text? _entryStatusText;
-        private Text? _modeSelectDescriptionText;
-        private Text? _multiplayerSubtitleText;
-        private Text? _accountLabelText;
-        private Text? _passwordLabelText;
-        private Text? _accountPlaceholderText;
-        private Text? _passwordPlaceholderText;
+        private TMP_Text? _hudTitleText;
+        private TMP_Text? _hudStatusText;
+        private TMP_Text? _hudPlayerText;
+        private TMP_Text? _hudTickText;
+        private TMP_Text? _hudModeText;
+        private TMP_Text? _hudHintText;
+        private TMP_Text? _hudEventText;
+        private TMP_Text? _entryTitleText;
+        private TMP_Text? _entryStatusText;
+        private TMP_Text? _modeSelectDescriptionText;
+        private TMP_Text? _multiplayerSubtitleText;
+        private TMP_Text? _accountLabelText;
+        private TMP_Text? _passwordLabelText;
+        private TMP_Text? _accountPlaceholderText;
+        private TMP_Text? _passwordPlaceholderText;
         private Button? _singlePlayerButton;
         private Button? _multiplayerButton;
         private Button? _matchButton;
         private Button? _backButton;
-        private Text? _singlePlayerButtonText;
-        private Text? _multiplayerButtonText;
-        private Text? _matchButtonText;
-        private Text? _backButtonText;
-        private InputField? _accountInputField;
-        private InputField? _passwordInputField;
+        private TMP_Text? _singlePlayerButtonText;
+        private TMP_Text? _multiplayerButtonText;
+        private TMP_Text? _matchButtonText;
+        private TMP_Text? _backButtonText;
+        private TMP_InputField? _accountInputField;
+        private TMP_InputField? _passwordInputField;
+        private TMP_FontAsset? _tmpFontAsset;
 #if UNITY_EDITOR
         private Vector2 _editorMoveOverride;
         private bool _editorDashOverride;
@@ -225,20 +228,20 @@ namespace SampleClient.Gameplay
             };
 
             GUI.Label(new Rect(contentRect.x, contentRect.y, contentRect.width, 24f), "ULinkRPC Dot Arena", titleStyle);
-            GUI.Label(new Rect(contentRect.x, contentRect.y + 24f, contentRect.width, 18f), $"状态: {_status}", bodyStyle);
+            GUI.Label(new Rect(contentRect.x, contentRect.y + 24f, contentRect.width, 18f), $"\u72b6\u6001: {_status}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 44f, contentRect.width, 18f),
-                $"玩家: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   积分: {GetLocalPlayerScoreText()}", bodyStyle);
+                $"\u73a9\u5bb6: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   \u79ef\u5206: {GetLocalPlayerScoreText()}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 64f, contentRect.width, 18f),
-                $"服务端 Tick: {_lastWorldTick}   同步人数: {_views.Count}   Buff: {GetLocalPlayerBuffText()}", bodyStyle);
+                $"\u670d\u52a1\u7aef Tick: {_lastWorldTick}   \u540c\u6b65\u4eba\u6570: {_views.Count}   Buff: {GetLocalPlayerBuffText()}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 84f, contentRect.width, 18f),
                 _sessionMode == SessionMode.SinglePlayer
-                    ? "模式: 本地单机"
-                    : $"地址: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}", bodyStyle);
+                    ? "\u6a21\u5f0f: \u672c\u5730\u5355\u673a"
+                    : $"\u5730\u5740: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}", bodyStyle);
 
             GUI.Label(new Rect(contentRect.x, contentRect.y + 104f, contentRect.width, 18f),
-                "W/A/S/D 移动, Space 冲刺。客户端只发输入，位置以服务端广播为准。", bodyStyle);
+                "W/A/S/D \u79fb\u52a8, Space \u51b2\u523a\u3002\u5ba2\u6237\u7aef\u53ea\u53d1\u8f93\u5165\uff0c\u4f4d\u7f6e\u4ee5\u670d\u52a1\u7aef\u5e7f\u64ad\u4e3a\u51c6\u3002", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 124f, contentRect.width, 18f),
-                $"事件: {GetCurrentEventMessage()}", bodyStyle);
+                $"\u4e8b\u4ef6: {GetCurrentEventMessage()}", bodyStyle);
 
             DrawPlayerOverlays();
         }
@@ -415,7 +418,7 @@ namespace SampleClient.Gameplay
 
             _entryMenuState = EntryMenuState.MultiplayerAuth;
             _status = "Enter account credentials";
-            _eventMessage = "Press Match to connect";
+            _eventMessage = "\u70b9\u51fb\u5339\u914d\u5f00\u59cb\u8054\u673a";
             SyncSceneUiInputs();
             RefreshSceneUi();
         }
@@ -428,8 +431,8 @@ namespace SampleClient.Gameplay
             }
 
             _entryMenuState = EntryMenuState.ModeSelect;
-            _status = "Select mode";
-            _eventMessage = "Choose single player or multiplayer";
+            _status = "\u8bf7\u9009\u62e9\u6a21\u5f0f";
+            _eventMessage = "\u8bf7\u9009\u62e9\u5355\u673a\u6216\u8054\u673a";
             RefreshSceneUi();
         }
 
@@ -461,6 +464,9 @@ namespace SampleClient.Gameplay
                 return;
             }
 
+            _tmpFontAsset ??= LoadTmpFontAsset();
+            ApplySceneUiFonts();
+
             _overlayLayer = FindSceneUiRect("SceneUI/OverlayLayer");
             _hudPanel = FindSceneUiObject("SceneUI/HUDPanel");
             _entryPanel = FindSceneUiObject("SceneUI/EntryPanel");
@@ -482,8 +488,8 @@ namespace SampleClient.Gameplay
             _multiplayerSubtitleText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/SubtitleText");
             _accountLabelText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountLabel");
             _passwordLabelText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordLabel");
-            _accountPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountInput/Placeholder");
-            _passwordPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput/Placeholder");
+            _accountPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountInput/Text Area/Placeholder");
+            _passwordPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput/Text Area/Placeholder");
 
             _singlePlayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/SinglePlayerButton");
             _multiplayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton");
@@ -550,28 +556,28 @@ namespace SampleClient.Gameplay
             if (_modeSelectPanel != null) _modeSelectPanel.SetActive(_entryMenuState == EntryMenuState.ModeSelect);
             if (_multiplayerPanel != null) _multiplayerPanel.SetActive(_entryMenuState == EntryMenuState.MultiplayerAuth);
 
-            SetText(_hudTitleText, "ULinkRPC Dot Arena");
-            SetText(_hudStatusText, $"Status: {_status}");
-            SetText(_hudPlayerText, $"Player: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   Score: {GetLocalPlayerScoreText()}");
-            SetText(_hudTickText, $"Tick: {_lastWorldTick}   Players: {_views.Count}   Buff: {GetLocalPlayerBuffText()}");
+            SetText(_hudTitleText, "ULinkRPC \u70b9\u9635\u7ade\u6280\u573a");
+            SetText(_hudStatusText, $"\u72b6\u6001: {_status}");
+            SetText(_hudPlayerText, $"\u73a9\u5bb6: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   \u79ef\u5206: {GetLocalPlayerScoreText()}");
+            SetText(_hudTickText, $"Tick: {_lastWorldTick}   \u540c\u6b65\u4eba\u6570: {_views.Count}   Buff: {GetLocalPlayerBuffText()}");
             SetText(_hudModeText, _sessionMode == SessionMode.SinglePlayer
-                ? "Mode: Single Player"
-                : $"Endpoint: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
-            SetText(_hudHintText, "W/A/S/D move, Space dash. Server state is authoritative.");
-            SetText(_hudEventText, $"Event: {GetCurrentEventMessage()}");
+                ? "\u6a21\u5f0f: \u672c\u5730\u5355\u673a"
+                : $"\u5730\u5740: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
+            SetText(_hudHintText, "W/A/S/D \u79fb\u52a8\uff0cSpace \u51b2\u523a\u3002\u4f4d\u7f6e\u4ee5\u6743\u5a01\u72b6\u6001\u4e3a\u51c6\u3002");
+            SetText(_hudEventText, $"\u4e8b\u4ef6: {GetCurrentEventMessage()}");
 
-            SetText(_entryTitleText, "Dot Arena");
+            SetText(_entryTitleText, "\u70b9\u9635\u7ade\u6280\u573a");
             SetText(_entryStatusText, _status);
-            SetText(_modeSelectDescriptionText, "Choose a mode. Single player enters immediately and fills to four with AI.");
-            SetText(_multiplayerSubtitleText, "Multiplayer Match");
-            SetText(_accountLabelText, "Account");
-            SetText(_passwordLabelText, "Password");
-            SetText(_accountPlaceholderText, "Account");
-            SetText(_passwordPlaceholderText, "Password");
-            SetText(_singlePlayerButtonText, "Single Player");
-            SetText(_multiplayerButtonText, "Multiplayer");
-            SetText(_matchButtonText, _isConnecting ? "Matching..." : "Match");
-            SetText(_backButtonText, "Back");
+            SetText(_modeSelectDescriptionText, "\u9009\u62e9\u6a21\u5f0f\u3002\u5355\u673a\u5c06\u7acb\u5373\u5f00\u59cb\uff0c\u5e76\u8865\u8db3 4 \u540d AI\u3002");
+            SetText(_multiplayerSubtitleText, "\u8054\u673a\u5339\u914d");
+            SetText(_accountLabelText, "\u8d26\u53f7");
+            SetText(_passwordLabelText, "\u5bc6\u7801");
+            SetText(_accountPlaceholderText, "\u8bf7\u8f93\u5165\u8d26\u53f7");
+            SetText(_passwordPlaceholderText, "\u8bf7\u8f93\u5165\u5bc6\u7801");
+            SetText(_singlePlayerButtonText, "\u5355\u673a");
+            SetText(_multiplayerButtonText, "\u8054\u673a");
+            SetText(_matchButtonText, _isConnecting ? "\u5339\u914d\u4e2d..." : "\u5339\u914d");
+            SetText(_backButtonText, "\u8fd4\u56de");
 
             if (_singlePlayerButton != null) _singlePlayerButton.interactable = !_isConnecting;
             if (_multiplayerButton != null) _multiplayerButton.interactable = !_isConnecting;
@@ -602,10 +608,48 @@ namespace SampleClient.Gameplay
             return target != null ? target.gameObject : null;
         }
 
-        private Text? FindSceneUiText(string path)
+        private void ApplySceneUiFonts()
+        {
+            if (_sceneUiRoot == null)
+            {
+                return;
+            }
+
+            _tmpFontAsset ??= LoadTmpFontAsset();
+            if (_tmpFontAsset == null)
+            {
+                return;
+            }
+
+            foreach (var text in _sceneUiRoot.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (text.font == null)
+                {
+                    text.font = _tmpFontAsset;
+                }
+            }
+        }
+
+        private static TMP_FontAsset? LoadTmpFontAsset()
+        {
+            var projectFont = Resources.Load<TMP_FontAsset>(TmpFallbackFontAssetResourcePath);
+            if (projectFont != null)
+            {
+                return projectFont;
+            }
+
+            if (TMP_Settings.defaultFontAsset != null)
+            {
+                return TMP_Settings.defaultFontAsset;
+            }
+
+            return Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+        }
+
+        private TMP_Text? FindSceneUiText(string path)
         {
             var target = transform.Find(path);
-            return target != null ? target.GetComponent<Text>() : null;
+            return target != null ? target.GetComponent<TMP_Text>() : null;
         }
 
         private Button? FindSceneUiButton(string path)
@@ -614,10 +658,10 @@ namespace SampleClient.Gameplay
             return target != null ? target.GetComponent<Button>() : null;
         }
 
-        private InputField? FindSceneUiInputField(string path)
+        private TMP_InputField? FindSceneUiInputField(string path)
         {
             var target = transform.Find(path);
-            return target != null ? target.GetComponent<InputField>() : null;
+            return target != null ? target.GetComponent<TMP_InputField>() : null;
         }
 
         private RectTransform? FindSceneUiRect(string path)
@@ -626,7 +670,7 @@ namespace SampleClient.Gameplay
             return target != null ? target.GetComponent<RectTransform>() : null;
         }
 
-        private static void SetText(Text? label, string value)
+        private static void SetText(TMP_Text? label, string value)
         {
             if (label == null || label.text == value)
             {
@@ -673,7 +717,7 @@ namespace SampleClient.Gameplay
             if (_isConnecting || _isConnected || _sessionMode == SessionMode.SinglePlayer) return;
 
             _isConnecting = true;
-            _status = $"Connecting {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}";
+            _status = $"\u6b63\u5728\u8fde\u63a5 {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}";
 
             try
             {
@@ -1852,7 +1896,7 @@ namespace SampleClient.Gameplay
             rootRect.pivot = new Vector2(0.5f, 0.5f);
             rootRect.sizeDelta = new Vector2(140f, 40f);
 
-            var nameObject = new GameObject("NameText", typeof(RectTransform), typeof(Text));
+            var nameObject = new GameObject("NameText", typeof(RectTransform), typeof(TextMeshProUGUI));
             nameObject.transform.SetParent(root.transform, false);
             var nameRect = (RectTransform)nameObject.transform;
             nameRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -1861,16 +1905,16 @@ namespace SampleClient.Gameplay
             nameRect.anchoredPosition = new Vector2(0f, -10f);
             nameRect.sizeDelta = new Vector2(140f, 20f);
 
-            var nameText = nameObject.GetComponent<Text>();
-            nameText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            var nameText = nameObject.GetComponent<TextMeshProUGUI>();
+            nameText.font = _tmpFontAsset ??= LoadTmpFontAsset();
             nameText.fontSize = 16;
-            nameText.fontStyle = FontStyle.Bold;
-            nameText.alignment = TextAnchor.MiddleCenter;
-            nameText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            nameText.verticalOverflow = VerticalWrapMode.Overflow;
+            nameText.fontStyle = FontStyles.Bold;
+            nameText.alignment = TextAlignmentOptions.Center;
+            nameText.enableWordWrapping = false;
+            nameText.overflowMode = TextOverflowModes.Overflow;
             nameText.color = new Color(0.94f, 0.97f, 1f, 1f);
 
-            var scoreObject = new GameObject("ScoreText", typeof(RectTransform), typeof(Text));
+            var scoreObject = new GameObject("ScoreText", typeof(RectTransform), typeof(TextMeshProUGUI));
             scoreObject.transform.SetParent(root.transform, false);
             var scoreRect = (RectTransform)scoreObject.transform;
             scoreRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -1879,13 +1923,13 @@ namespace SampleClient.Gameplay
             scoreRect.anchoredPosition = new Vector2(0f, 8f);
             scoreRect.sizeDelta = new Vector2(140f, 18f);
 
-            var scoreText = scoreObject.GetComponent<Text>();
-            scoreText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            var scoreText = scoreObject.GetComponent<TextMeshProUGUI>();
+            scoreText.font = _tmpFontAsset ??= LoadTmpFontAsset();
             scoreText.fontSize = 14;
-            scoreText.fontStyle = FontStyle.Bold;
-            scoreText.alignment = TextAnchor.MiddleCenter;
-            scoreText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            scoreText.verticalOverflow = VerticalWrapMode.Overflow;
+            scoreText.fontStyle = FontStyles.Bold;
+            scoreText.alignment = TextAlignmentOptions.Center;
+            scoreText.enableWordWrapping = false;
+            scoreText.overflowMode = TextOverflowModes.Overflow;
             scoreText.color = new Color(1f, 0.97f, 0.78f, 1f);
 
             _playerOverlayViews.Add(playerId, new PlayerOverlayView(root, rootRect, nameText, scoreText));
@@ -1960,7 +2004,7 @@ namespace SampleClient.Gameplay
 
         private sealed class PlayerOverlayView
         {
-            public PlayerOverlayView(GameObject root, RectTransform rootRect, Text nameText, Text scoreText)
+            public PlayerOverlayView(GameObject root, RectTransform rootRect, TextMeshProUGUI nameText, TextMeshProUGUI scoreText)
             {
                 Root = root;
                 RootRect = rootRect;
@@ -1970,8 +2014,8 @@ namespace SampleClient.Gameplay
 
             public GameObject Root { get; }
             public RectTransform RootRect { get; }
-            public Text NameText { get; }
-            public Text ScoreText { get; }
+            public TextMeshProUGUI NameText { get; }
+            public TextMeshProUGUI ScoreText { get; }
         }
 
         private sealed class DotView

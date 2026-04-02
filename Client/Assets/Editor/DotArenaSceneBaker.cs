@@ -1,11 +1,14 @@
 using SampleClient.Gameplay;
 using Shared.Gameplay;
+using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using UnityEngine.TextCore.LowLevel;
 using UnityEngine.UI;
+using System.IO;
 
 internal static class DotArenaSceneBaker
 {
@@ -22,6 +25,48 @@ internal static class DotArenaSceneBaker
     private const string ArenaRootName = "ArenaRoot";
     private const string SceneUiRootName = "SceneUI";
     private const string PixelSpritePath = "Assets/Textures/DotArenaPixel.png";
+    private const string TmpChineseFontAssetPath = "Assets/TextMesh Pro/Resources/Fonts & Materials/DotArenaCJK SDF.asset";
+    private const string TmpChineseSourceFontPath = "Assets/TextMesh Pro/Fonts/msyh.ttc";
+    private const string WindowsChineseFontPath = "C:/Windows/Fonts/msyh.ttc";
+    private const string UiCharacterSet =
+        "ULinkRPC Dot Arena Tick Buff AI W/A/S/D Space " +
+        "\u70b9\u9635\u7ade\u6280\u573a" +
+        "\u72b6\u6001" +
+        "\u73a9\u5bb6" +
+        "\u79ef\u5206" +
+        "\u670d\u52a1\u7aef" +
+        "\u540c\u6b65\u4eba\u6570" +
+        "\u6a21\u5f0f" +
+        "\u672c\u5730\u5355\u673a" +
+        "\u5730\u5740" +
+        "\u63d0\u793a" +
+        "\u4e8b\u4ef6" +
+        "\u9009\u62e9" +
+        "\u5355\u673a" +
+        "\u8054\u673a" +
+        "\u5339\u914d" +
+        "\u8d26\u53f7" +
+        "\u5bc6\u7801" +
+        "\u8bf7\u8f93\u5165" +
+        "\u8fd4\u56de" +
+        "\u70b9\u51fb" +
+        "\u5f00\u59cb" +
+        "\u8865\u8db3" +
+        "\u540d" +
+        "\u8fde\u63a5\u4e2d" +
+        "\u6b63\u5728" +
+        "\u7b49\u5f85" +
+        "\u52a0\u5165" +
+        "\u79fb\u52a8" +
+        "\u51b2\u523a" +
+        "\u4f4d\u7f6e" +
+        "\u4ee5" +
+        "\u6743\u5a01" +
+        "\u4e3a" +
+        "\u51c6" +
+        "\u5ba2\u6237\u7aef" +
+        "\u53ea\u53d1" +
+        "\u5e7f\u64ad";
 
     [MenuItem("Tools/ULinkRPC/Bake Gameplay Arena Into Scene")]
     private static void BakeGameplayArenaIntoScene()
@@ -34,6 +79,7 @@ internal static class DotArenaSceneBaker
         }
 
         EnsurePixelSpriteImportSettings();
+        EnsureChineseTmpFontAsset();
         var pixelSprite = AssetDatabase.LoadAssetAtPath<Sprite>(PixelSpritePath);
         if (pixelSprite == null)
         {
@@ -133,19 +179,19 @@ internal static class DotArenaSceneBaker
     {
         var panel = CreatePanel(parent, pixelSprite, "HUDPanel", PanelColor,
             new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(416f, 176f));
-        AddLabel(panel.transform, "TitleText", "ULinkRPC Dot Arena", 16, FontStyle.Bold, TextAnchor.UpperLeft, TextColor,
+        AddLabel(panel.transform, "TitleText", "ULinkRPC \u70b9\u9635\u7ade\u6280\u573a", 16, FontStyles.Bold, TextAlignmentOptions.TopLeft, TextColor,
             new Vector2(12f, -10f), new Vector2(392f, 24f));
-        AddLabel(panel.transform, "StatusText", "Status", 12, FontStyle.Normal, TextAnchor.UpperLeft, SecondaryTextColor,
+        AddLabel(panel.transform, "StatusText", "\u72b6\u6001", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -38f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "PlayerText", "Player", 12, FontStyle.Normal, TextAnchor.UpperLeft, SecondaryTextColor,
+        AddLabel(panel.transform, "PlayerText", "\u73a9\u5bb6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -58f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "TickText", "Tick", 12, FontStyle.Normal, TextAnchor.UpperLeft, SecondaryTextColor,
+        AddLabel(panel.transform, "TickText", "Tick", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -78f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "ModeText", "Mode", 12, FontStyle.Normal, TextAnchor.UpperLeft, SecondaryTextColor,
+        AddLabel(panel.transform, "ModeText", "\u6a21\u5f0f", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -98f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "HintText", "Hint", 12, FontStyle.Normal, TextAnchor.UpperLeft, SecondaryTextColor,
+        AddLabel(panel.transform, "HintText", "\u63d0\u793a", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -118f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "EventText", "Event", 12, FontStyle.Normal, TextAnchor.UpperLeft, SecondaryTextColor,
+        AddLabel(panel.transform, "EventText", "\u4e8b\u4ef6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -138f), new Vector2(392f, 18f));
     }
 
@@ -153,36 +199,36 @@ internal static class DotArenaSceneBaker
     {
         var panel = CreatePanel(parent, pixelSprite, "EntryPanel", PanelColor,
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 0f), new Vector2(420f, 280f));
-        AddLabel(panel.transform, "TitleText", "Dot Arena", 22, FontStyle.Bold, TextAnchor.UpperCenter, TextColor,
+        AddLabel(panel.transform, "TitleText", "\u70b9\u9635\u7ade\u6280\u573a", 22, FontStyles.Bold, TextAlignmentOptions.Top, TextColor,
             new Vector2(0f, -16f), new Vector2(340f, 30f), centered: true);
-        AddLabel(panel.transform, "StatusText", "Status", 13, FontStyle.Normal, TextAnchor.UpperCenter, SecondaryTextColor,
+        AddLabel(panel.transform, "StatusText", "\u72b6\u6001", 13, FontStyles.Normal, TextAlignmentOptions.Top, SecondaryTextColor,
             new Vector2(0f, -52f), new Vector2(340f, 36f), centered: true);
 
         var modeSelect = CreateStretchGroup(panel.transform, "ModeSelectPanel");
-        AddLabel(modeSelect.transform, "DescriptionText", "Mode Description", 13, FontStyle.Normal, TextAnchor.UpperCenter, SecondaryTextColor,
+        AddLabel(modeSelect.transform, "DescriptionText", "\u9009\u62e9\u6a21\u5f0f", 13, FontStyles.Normal, TextAlignmentOptions.Top, SecondaryTextColor,
             new Vector2(0f, -96f), new Vector2(320f, 42f), centered: true);
         CreateButton(modeSelect.transform, pixelSprite, "SinglePlayerButton", new Vector2(0f, -154f), new Vector2(260f, 34f),
-            "Single Player");
+            "\u5355\u673a");
         CreateButton(modeSelect.transform, pixelSprite, "MultiplayerButton", new Vector2(0f, -198f), new Vector2(260f, 34f),
-            "Multiplayer");
+            "\u8054\u673a");
 
         var multiplayer = CreateStretchGroup(panel.transform, "MultiplayerPanel");
-        AddLabel(multiplayer.transform, "SubtitleText", "Multiplayer Match", 13, FontStyle.Normal, TextAnchor.UpperCenter, SecondaryTextColor,
+        AddLabel(multiplayer.transform, "SubtitleText", "\u8054\u673a\u5339\u914d", 13, FontStyles.Normal, TextAlignmentOptions.Top, SecondaryTextColor,
             new Vector2(0f, -96f), new Vector2(320f, 24f), centered: true);
-        AddLabel(multiplayer.transform, "AccountLabel", "Account", 12, FontStyle.Normal, TextAnchor.MiddleLeft, SecondaryTextColor,
+        AddLabel(multiplayer.transform, "AccountLabel", "\u8d26\u53f7", 12, FontStyles.Normal, TextAlignmentOptions.Left, SecondaryTextColor,
             new Vector2(-136f, -132f), new Vector2(60f, 24f));
-        AddLabel(multiplayer.transform, "PasswordLabel", "Password", 12, FontStyle.Normal, TextAnchor.MiddleLeft, SecondaryTextColor,
+        AddLabel(multiplayer.transform, "PasswordLabel", "\u5bc6\u7801", 12, FontStyles.Normal, TextAlignmentOptions.Left, SecondaryTextColor,
             new Vector2(-136f, -168f), new Vector2(60f, 24f));
 
         CreateInputField(multiplayer.transform, pixelSprite, "AccountInput", new Vector2(30f, -132f), new Vector2(212f, 28f),
-            "Account", false);
+            "\u8bf7\u8f93\u5165\u8d26\u53f7", false);
         CreateInputField(multiplayer.transform, pixelSprite, "PasswordInput", new Vector2(30f, -168f), new Vector2(212f, 28f),
-            "Password", true);
+            "\u8bf7\u8f93\u5165\u5bc6\u7801", true);
 
         CreateButton(multiplayer.transform, pixelSprite, "MatchButton", new Vector2(-70f, -216f), new Vector2(120f, 30f),
-            "Match");
+            "\u5339\u914d");
         CreateButton(multiplayer.transform, pixelSprite, "BackButton", new Vector2(70f, -216f), new Vector2(120f, 30f),
-            "Back");
+            "\u8fd4\u56de");
     }
 
     private static GameObject CreateStretchGroup(Transform parent, string name)
@@ -222,10 +268,10 @@ internal static class DotArenaSceneBaker
         return panel;
     }
 
-    private static Text AddLabel(Transform parent, string name, string text, int fontSize, FontStyle fontStyle,
-        TextAnchor alignment, Color color, Vector2 anchoredPosition, Vector2 size, bool centered = false)
+    private static TextMeshProUGUI AddLabel(Transform parent, string name, string text, float fontSize, FontStyles fontStyle,
+        TextAlignmentOptions alignment, Color color, Vector2 anchoredPosition, Vector2 size, bool centered = false)
     {
-        var label = new GameObject(name, typeof(RectTransform), typeof(Text));
+        var label = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI));
         Undo.RegisterCreatedObjectUndo(label, "Bake DotArena UI");
         label.transform.SetParent(parent, false);
         var rect = (RectTransform)label.transform;
@@ -235,16 +281,115 @@ internal static class DotArenaSceneBaker
         rect.anchoredPosition = anchoredPosition;
         rect.sizeDelta = size;
 
-        var uiText = label.GetComponent<Text>();
-        uiText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        var uiText = label.GetComponent<TextMeshProUGUI>();
+        uiText.font = GetDefaultTmpFontAsset();
         uiText.fontSize = fontSize;
         uiText.fontStyle = fontStyle;
         uiText.alignment = alignment;
-        uiText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        uiText.verticalOverflow = VerticalWrapMode.Overflow;
+        uiText.enableWordWrapping = true;
+        uiText.overflowMode = TextOverflowModes.Overflow;
         uiText.color = color;
         uiText.text = text;
         return uiText;
+    }
+
+    private static TMP_FontAsset? GetDefaultTmpFontAsset()
+    {
+        return EnsureChineseTmpFontAsset();
+    }
+
+    private static TMP_FontAsset? EnsureChineseTmpFontAsset()
+    {
+        var existing = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpChineseFontAssetPath);
+        if (existing != null)
+        {
+            existing.TryAddCharacters(UiCharacterSet, out _);
+            EditorUtility.SetDirty(existing);
+            if (TMP_Settings.instance != null && TMP_Settings.defaultFontAsset != existing)
+            {
+                TMP_Settings.defaultFontAsset = existing;
+                EditorUtility.SetDirty(TMP_Settings.instance);
+            }
+            AssetDatabase.SaveAssets();
+            return existing;
+        }
+
+        var resourcesDirectory = System.IO.Path.GetDirectoryName(TmpChineseFontAssetPath);
+        if (!string.IsNullOrEmpty(resourcesDirectory) && !AssetDatabase.IsValidFolder(resourcesDirectory))
+        {
+            EnsureFolderHierarchy(resourcesDirectory);
+        }
+
+        var sourceFont = EnsureChineseSourceFontImported();
+        if (sourceFont == null)
+        {
+            Debug.LogError("[DotArena] Failed to import Chinese source font for TMP.");
+            return null;
+        }
+
+        var fontAsset = TMP_FontAsset.CreateFontAsset(
+            sourceFont,
+            90,
+            9,
+            GlyphRenderMode.SDFAA,
+            1024,
+            1024,
+            AtlasPopulationMode.Dynamic,
+            true);
+
+        fontAsset.name = "DotArenaCJK SDF";
+        fontAsset.TryAddCharacters(UiCharacterSet, out _);
+        AssetDatabase.CreateAsset(fontAsset, TmpChineseFontAssetPath);
+        if (TMP_Settings.instance != null)
+        {
+            TMP_Settings.defaultFontAsset = fontAsset;
+            EditorUtility.SetDirty(TMP_Settings.instance);
+        }
+        AssetDatabase.SaveAssets();
+        AssetDatabase.ImportAsset(TmpChineseFontAssetPath, ImportAssetOptions.ForceUpdate);
+        return AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpChineseFontAssetPath);
+    }
+
+    private static Font? EnsureChineseSourceFontImported()
+    {
+        var existing = AssetDatabase.LoadAssetAtPath<Font>(TmpChineseSourceFontPath);
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        if (!File.Exists(WindowsChineseFontPath))
+        {
+            Debug.LogError($"[DotArena] Missing Windows font at '{WindowsChineseFontPath}'.");
+            return null;
+        }
+
+        var fontDirectory = Path.GetDirectoryName(TmpChineseSourceFontPath);
+        if (!string.IsNullOrEmpty(fontDirectory) && !AssetDatabase.IsValidFolder(fontDirectory))
+        {
+            EnsureFolderHierarchy(fontDirectory);
+        }
+
+        File.Copy(WindowsChineseFontPath, TmpChineseSourceFontPath, true);
+        AssetDatabase.ImportAsset(TmpChineseSourceFontPath, ImportAssetOptions.ForceUpdate);
+        return AssetDatabase.LoadAssetAtPath<Font>(TmpChineseSourceFontPath);
+    }
+
+    private static void EnsureFolderHierarchy(string assetFolderPath)
+    {
+        var normalized = assetFolderPath.Replace('\\', '/');
+        var segments = normalized.Split('/');
+        var current = segments[0];
+        for (var i = 1; i < segments.Length; i++)
+        {
+            var next = $"{current}/{segments[i]}";
+            if (!AssetDatabase.IsValidFolder(next))
+            {
+                AssetDatabase.CreateFolder(current, segments[i]);
+            }
+
+            current = next;
+        }
     }
 
     private static void CreateButton(Transform parent, Sprite sprite, string name, Vector2 anchoredPosition,
@@ -264,14 +409,14 @@ internal static class DotArenaSceneBaker
         image.sprite = sprite;
         image.color = ButtonColor;
 
-        AddLabel(buttonObject.transform, "Label", label, 13, FontStyle.Bold, TextAnchor.MiddleCenter, TextColor,
+        AddLabel(buttonObject.transform, "Label", label, 13, FontStyles.Bold, TextAlignmentOptions.Center, TextColor,
             new Vector2(0f, -6f), size, centered: true);
     }
 
     private static void CreateInputField(Transform parent, Sprite sprite, string name, Vector2 anchoredPosition,
         Vector2 size, string placeholder, bool password)
     {
-        var fieldObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(InputField));
+        var fieldObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(TMP_InputField));
         Undo.RegisterCreatedObjectUndo(fieldObject, "Bake DotArena UI");
         fieldObject.transform.SetParent(parent, false);
         var rect = (RectTransform)fieldObject.transform;
@@ -285,20 +430,39 @@ internal static class DotArenaSceneBaker
         image.sprite = sprite;
         image.color = FieldColor;
 
-        var inputField = fieldObject.GetComponent<InputField>();
-        inputField.contentType = password ? InputField.ContentType.Password : InputField.ContentType.Standard;
-        inputField.lineType = InputField.LineType.SingleLine;
+        var inputField = fieldObject.GetComponent<TMP_InputField>();
+        inputField.contentType = password ? TMP_InputField.ContentType.Password : TMP_InputField.ContentType.Standard;
+        inputField.lineType = TMP_InputField.LineType.SingleLine;
         inputField.targetGraphic = image;
 
-        var text = AddLabel(fieldObject.transform, "Text", string.Empty, 13, FontStyle.Normal, TextAnchor.MiddleLeft, TextColor,
-            new Vector2(10f, -6f), new Vector2(size.x - 20f, size.y - 8f));
-        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        var textArea = new GameObject("Text Area", typeof(RectTransform), typeof(RectMask2D));
+        Undo.RegisterCreatedObjectUndo(textArea, "Bake DotArena UI");
+        textArea.transform.SetParent(fieldObject.transform, false);
+        var textAreaRect = (RectTransform)textArea.transform;
+        textAreaRect.anchorMin = Vector2.zero;
+        textAreaRect.anchorMax = Vector2.one;
+        textAreaRect.offsetMin = new Vector2(10f, 6f);
+        textAreaRect.offsetMax = new Vector2(-10f, -6f);
 
-        var placeholderText = AddLabel(fieldObject.transform, "Placeholder", placeholder, 13, FontStyle.Normal,
-            TextAnchor.MiddleLeft, PlaceholderTextColor, new Vector2(10f, -6f), new Vector2(size.x - 20f, size.y - 8f));
-        placeholderText.fontStyle = FontStyle.Italic;
-        placeholderText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        var text = AddLabel(textArea.transform, "Text", string.Empty, 13, FontStyles.Normal, TextAlignmentOptions.Left, TextColor,
+            Vector2.zero, Vector2.zero);
+        var textRect = text.rectTransform;
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+        text.enableWordWrapping = false;
 
+        var placeholderText = AddLabel(textArea.transform, "Placeholder", placeholder, 13, FontStyles.Italic,
+            TextAlignmentOptions.Left, PlaceholderTextColor, Vector2.zero, Vector2.zero);
+        var placeholderRect = placeholderText.rectTransform;
+        placeholderRect.anchorMin = Vector2.zero;
+        placeholderRect.anchorMax = Vector2.one;
+        placeholderRect.offsetMin = Vector2.zero;
+        placeholderRect.offsetMax = Vector2.zero;
+        placeholderText.enableWordWrapping = false;
+
+        inputField.textViewport = textAreaRect;
         inputField.textComponent = text;
         inputField.placeholder = placeholderText;
 
