@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.coplaydev.unity-mcp": "9.6.4",
+    "com.coplaydev.unity-mcp": "9.6.6",
     "com.github-glitchenzo.nugetforunity": "4.5.0",
     "com.ulinkrpc.ulinkrpcsample31.shared": "file:../../Shared",
     "com.unity.ide.rider": "3.0.39",

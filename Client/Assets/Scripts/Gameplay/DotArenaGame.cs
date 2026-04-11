@@ -907,7 +907,7 @@ namespace SampleClient.Gameplay
                 {
                     if (previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0)
                     {
-                        PushEvent($"拾取{GetPickupDisplayName(PickupType.SpeedBoost)}: 移速提升 50%，持续 10 秒");
+                        PushEvent($"拾取{GetPickupDisplayName(PickupType.SpeedBoost)}: 移速提升 100%，持续 10 秒");
                     }
 
                     if (previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0)

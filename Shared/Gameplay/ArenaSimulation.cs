@@ -17,7 +17,7 @@ namespace Shared.Gameplay
         public int RestartDelayTicks { get; set; } = 60;
         public int EliminationCreditWindowTicks { get; set; } = 20;
         public float BaseSpeed { get; set; } = 6f;
-        public float SpeedBoostMultiplier { get; set; } = 1.5f;
+        public float SpeedBoostMultiplier { get; set; } = 2f;
         public float SpeedBoostDurationSeconds { get; set; } = 10f;
         public float DashSpeed { get; set; } = 12f;
         public float DashTimeSeconds { get; set; } = 0.3f;
@@ -30,7 +30,7 @@ namespace Shared.Gameplay
         public string BotPrefix { get; set; } = "AI";
         public float BotEdgeAvoidDistance { get; set; } = 2.25f;
         public float BotEmergencyEdgeDistance { get; set; } = 1f;
-        public PickupType[] EnabledPickupTypes { get; set; } = { PickupType.KnockbackBoost };
+        public PickupType[] EnabledPickupTypes { get; set; } = { PickupType.SpeedBoost, PickupType.KnockbackBoost };
     }
 
     public sealed class ArenaPlayerRegistration
