@@ -71,6 +71,12 @@ namespace SampleClient.Gameplay
         private static readonly Color DangerColor = new(1f, 0.24f, 0.24f, 0.08f);
         private static readonly Color PlayerOutlineColor = new(1f, 1f, 1f, 0.92f);
         private static readonly Color PlayerTextBackdropColor = new(0.04f, 0.06f, 0.1f, 0.72f);
+        private static readonly Color UiPanelBackgroundColor = new(0.07f, 0.1f, 0.14f, 0.96f);
+        private static readonly Color UiInputBackgroundColor = new(0.14f, 0.19f, 0.25f, 1f);
+        private static readonly Color UiPrimaryTextColor = new(0.96f, 0.98f, 1f, 1f);
+        private static readonly Color UiSecondaryTextColor = new(0.84f, 0.9f, 0.96f, 1f);
+        private static readonly Color UiMutedTextColor = new(0.73f, 0.8f, 0.88f, 1f);
+        private static readonly Color UiAccentTextColor = new(1f, 0.92f, 0.7f, 1f);
         private static readonly Color ScorePickupColor = new(0.22f, 0.9f, 1f, 0.95f);
         private static readonly Color SpeedPickupColor = new(1f, 0.86f, 0.22f, 0.95f);
         private static readonly Color KnockbackPickupColor = new(1f, 0.22f, 0.22f, 0.95f);
@@ -146,6 +152,8 @@ namespace SampleClient.Gameplay
         private TMP_Text? _hudModeText;
         private TMP_Text? _hudHintText;
         private TMP_Text? _hudEventText;
+        private TMP_Text? _hudCountdownText;
+        private int _lastRoundRemainingSeconds;
         private TMP_Text? _entryTitleText;
         private TMP_Text? _entryStatusText;
         private TMP_Text? _modeSelectDescriptionText;
@@ -502,6 +510,7 @@ namespace SampleClient.Gameplay
             _hudModeText = FindSceneUiText("SceneUI/HUDPanel/ModeText");
             _hudHintText = FindSceneUiText("SceneUI/HUDPanel/HintText");
             _hudEventText = FindSceneUiText("SceneUI/HUDPanel/EventText");
+            _hudCountdownText = FindSceneUiText("SceneUI/HUDPanel/CountdownText");
 
             _entryTitleText = FindSceneUiText("SceneUI/EntryPanel/TitleText");
             _entryStatusText = FindSceneUiText("SceneUI/EntryPanel/StatusText");
@@ -525,6 +534,8 @@ namespace SampleClient.Gameplay
 
             _accountInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/AccountInput");
             _passwordInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput");
+
+            ApplySceneUiTheme();
 
             if (_singlePlayerButton != null)
             {
@@ -587,6 +598,16 @@ namespace SampleClient.Gameplay
                 : $"\u5730\u5740: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
             SetText(_hudHintText, "W/A/S/D \u79fb\u52a8\uff0cSpace \u51b2\u523a\u3002\u4f4d\u7f6e\u4ee5\u6743\u5a01\u72b6\u6001\u4e3a\u51c6\u3002");
             SetText(_hudEventText, $"\u4e8b\u4ef6: {GetCurrentEventMessage()}");
+            if (_lastRoundRemainingSeconds > 0)
+            {
+                var minutes = _lastRoundRemainingSeconds / 60;
+                var seconds = _lastRoundRemainingSeconds % 60;
+                SetText(_hudCountdownText, $"Time: {minutes:D2}:{seconds:D2}");
+            }
+            else
+            {
+                SetText(_hudCountdownText, string.Empty);
+            }
 
             SetText(_entryTitleText, "\u70b9\u9635\u7ade\u6280\u573a");
             SetText(_entryStatusText, _status);
@@ -645,27 +666,144 @@ namespace SampleClient.Gameplay
 
             foreach (var text in _sceneUiRoot.GetComponentsInChildren<TMP_Text>(true))
             {
-                if (text.font == null)
+                if (text.font != _tmpFontAsset)
                 {
                     text.font = _tmpFontAsset;
                 }
             }
         }
 
+        private void ApplySceneUiTheme()
+        {
+            StylePanelImage(_hudPanel, UiPanelBackgroundColor);
+            StylePanelImage(_entryPanel, UiPanelBackgroundColor);
+
+            StyleText(_hudTitleText, UiAccentTextColor, 16f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_entryTitleText, UiAccentTextColor, 22f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+
+            StyleText(_hudStatusText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudPlayerText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudTickText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudModeText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudHintText, UiMutedTextColor, 12f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Truncate);
+            StyleText(_hudEventText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudCountdownText, UiAccentTextColor, 14f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+
+            StyleText(_entryStatusText, UiPrimaryTextColor, 14f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_modeSelectDescriptionText, UiSecondaryTextColor, 13f, true, TextAlignmentOptions.Top, TextOverflowModes.Truncate);
+            StyleText(_multiplayerSubtitleText, UiPrimaryTextColor, 15f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_accountLabelText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
+            StyleText(_passwordLabelText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
+            StyleText(_accountPlaceholderText, UiMutedTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
+            StyleText(_passwordPlaceholderText, UiMutedTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
+
+            StyleButton(_singlePlayerButton);
+            StyleButton(_multiplayerButton);
+            StyleButton(_matchButton);
+            StyleButton(_backButton);
+            StyleText(_singlePlayerButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_multiplayerButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_matchButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_backButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+
+            StyleInputField(_accountInputField);
+            StyleInputField(_passwordInputField);
+        }
+
+        private static void StylePanelImage(GameObject? panel, Color color)
+        {
+            if (panel == null)
+            {
+                return;
+            }
+
+            if (panel.TryGetComponent<Image>(out var image))
+            {
+                image.color = color;
+            }
+        }
+
+        private static void StyleText(
+            TMP_Text? text,
+            Color color,
+            float fontSize,
+            bool wrap,
+            TextAlignmentOptions alignment,
+            TextOverflowModes overflowMode)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            text.color = color;
+            text.fontSize = fontSize;
+            text.alignment = alignment;
+            text.enableWordWrapping = wrap;
+            text.overflowMode = overflowMode;
+            text.richText = false;
+        }
+
+        private static void StyleButton(Button? button)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            var colors = button.colors;
+            colors.normalColor = new Color(0.2f, 0.29f, 0.38f, 1f);
+            colors.highlightedColor = new Color(0.27f, 0.39f, 0.5f, 1f);
+            colors.pressedColor = new Color(0.14f, 0.22f, 0.3f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = new Color(0.2f, 0.2f, 0.22f, 0.7f);
+            colors.colorMultiplier = 1f;
+            button.colors = colors;
+        }
+
+        private static void StyleInputField(TMP_InputField? inputField)
+        {
+            if (inputField == null)
+            {
+                return;
+            }
+
+            if (inputField.targetGraphic is Image inputImage)
+            {
+                inputImage.color = UiInputBackgroundColor;
+            }
+
+            if (inputField.textComponent != null)
+            {
+                StyleText(inputField.textComponent, UiPrimaryTextColor, 14f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
+            }
+
+            if (inputField.placeholder is TMP_Text placeholderText)
+            {
+                StyleText(placeholderText, UiMutedTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
+            }
+        }
+
         private static TMP_FontAsset? LoadTmpFontAsset()
         {
             var projectFont = Resources.Load<TMP_FontAsset>(TmpFallbackFontAssetResourcePath);
-            if (projectFont != null)
+            if (IsUsableFont(projectFont))
             {
                 return projectFont;
             }
 
-            if (TMP_Settings.defaultFontAsset != null)
+            if (IsUsableFont(TMP_Settings.defaultFontAsset))
             {
                 return TMP_Settings.defaultFontAsset;
             }
 
-            return Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+            var fallback = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+            return IsUsableFont(fallback) ? fallback : TMP_Settings.defaultFontAsset;
+        }
+
+        private static bool IsUsableFont(TMP_FontAsset? fontAsset)
+        {
+            return fontAsset != null && fontAsset.atlasTexture != null;
         }
 
         private TMP_Text? FindSceneUiText(string path)
@@ -856,6 +994,7 @@ namespace SampleClient.Gameplay
 
             var previousArenaHalfExtents = _currentArenaHalfExtents;
             _lastWorldTick = worldState.Tick;
+            _lastRoundRemainingSeconds = worldState.RoundRemainingSeconds;
             _currentArenaHalfExtents = new Vector2(worldState.ArenaHalfExtentX, worldState.ArenaHalfExtentY);
             UpdateArenaVisuals();
             if (worldState.Players.Count != _lastLoggedPlayerCount)
@@ -2183,8 +2322,8 @@ namespace SampleClient.Gameplay
             nameText.fontStyle = FontStyles.Bold;
             nameText.alignment = TextAlignmentOptions.Center;
             nameText.enableWordWrapping = false;
-            nameText.overflowMode = TextOverflowModes.Overflow;
-            nameText.color = new Color(0.94f, 0.97f, 1f, 1f);
+            nameText.overflowMode = TextOverflowModes.Ellipsis;
+            nameText.color = UiPrimaryTextColor;
 
             var scoreObject = new GameObject("ScoreText", typeof(RectTransform), typeof(TextMeshProUGUI));
             scoreObject.transform.SetParent(root.transform, false);
@@ -2201,8 +2340,8 @@ namespace SampleClient.Gameplay
             scoreText.fontStyle = FontStyles.Bold;
             scoreText.alignment = TextAlignmentOptions.Center;
             scoreText.enableWordWrapping = false;
-            scoreText.overflowMode = TextOverflowModes.Overflow;
-            scoreText.color = new Color(1f, 0.97f, 0.78f, 1f);
+            scoreText.overflowMode = TextOverflowModes.Ellipsis;
+            scoreText.color = UiAccentTextColor;
 
             _playerOverlayViews.Add(playerId, new PlayerOverlayView(root, rootRect, nameText, scoreText));
         }

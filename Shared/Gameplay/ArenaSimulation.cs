@@ -240,7 +240,10 @@ namespace Shared.Gameplay
                 Tick = _tick,
                 RespawnDelaySeconds = _respawnDelaySecondsCeiling,
                 ArenaHalfExtentX = _currentArenaHalfExtents.x,
-                ArenaHalfExtentY = _currentArenaHalfExtents.y
+                ArenaHalfExtentY = _currentArenaHalfExtents.y,
+                RoundRemainingSeconds = (_winnerPlayerId is null && _players.Count >= _options.MinPlayersToStart)
+                    ? (int)MathF.Ceiling(MathF.Max(0f, _options.MaxRoundSeconds - _roundElapsedSeconds))
+                    : 0
             };
 
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))

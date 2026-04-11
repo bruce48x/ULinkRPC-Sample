@@ -28,6 +28,8 @@ internal static class DotArenaSceneBaker
     private const string TmpChineseFontAssetPath = "Assets/TextMesh Pro/Resources/Fonts & Materials/DotArenaCJK SDF.asset";
     private const string TmpChineseSourceFontPath = "Assets/TextMesh Pro/Fonts/msyh.ttc";
     private const string WindowsChineseFontPath = "C:/Windows/Fonts/msyh.ttc";
+    private const string MacChineseFontPath = "/System/Library/Fonts/PingFang.ttc";
+    private const string MacChineseFontFallbackPath = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf";
     private const string UiCharacterSet =
         "ULinkRPC Dot Arena Tick Buff AI W/A/S/D Space " +
         "\u70b9\u9635\u7ade\u6280\u573a" +
@@ -198,6 +200,8 @@ internal static class DotArenaSceneBaker
             new Vector2(12f, -118f), new Vector2(392f, 18f));
         AddLabel(panel.transform, "EventText", "\u4e8b\u4ef6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
             new Vector2(12f, -138f), new Vector2(392f, 18f));
+        AddLabel(panel.transform, "CountdownText", "Time: 02:00", 14, FontStyles.Bold, TextAlignmentOptions.TopLeft, TextColor,
+            new Vector2(12f, -158f), new Vector2(392f, 18f));
     }
 
     private static void BuildEntryPanel(DotArenaGame game, Transform parent, Sprite pixelSprite)
@@ -308,10 +312,18 @@ internal static class DotArenaSceneBaker
         var existing = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpChineseFontAssetPath);
         if (existing != null)
         {
+            if (existing.atlasTexture == null)
+            {
+                AssetDatabase.DeleteAsset(TmpChineseFontAssetPath);
+                AssetDatabase.Refresh();
+            }
+            else
+            {
             existing.TryAddCharacters(UiCharacterSet, out _);
             EditorUtility.SetDirty(existing);
             AssetDatabase.SaveAssets();
             return existing;
+            }
         }
 
         var resourcesDirectory = System.IO.Path.GetDirectoryName(TmpChineseFontAssetPath);
@@ -353,9 +365,10 @@ internal static class DotArenaSceneBaker
             return existing;
         }
 
-        if (!File.Exists(WindowsChineseFontPath))
+        var systemFontPath = ResolveSystemChineseFontPath();
+        if (string.IsNullOrEmpty(systemFontPath) || !File.Exists(systemFontPath))
         {
-            Debug.LogError($"[DotArena] Missing Windows font at '{WindowsChineseFontPath}'.");
+            Debug.LogError($"[DotArena] Missing system CJK font. Checked: '{WindowsChineseFontPath}', '{MacChineseFontPath}', '{MacChineseFontFallbackPath}'.");
             return null;
         }
 
@@ -365,9 +378,29 @@ internal static class DotArenaSceneBaker
             EnsureFolderHierarchy(fontDirectory);
         }
 
-        File.Copy(WindowsChineseFontPath, TmpChineseSourceFontPath, true);
+        File.Copy(systemFontPath, TmpChineseSourceFontPath, true);
         AssetDatabase.ImportAsset(TmpChineseSourceFontPath, ImportAssetOptions.ForceUpdate);
         return AssetDatabase.LoadAssetAtPath<Font>(TmpChineseSourceFontPath);
+    }
+
+    private static string ResolveSystemChineseFontPath()
+    {
+        if (File.Exists(WindowsChineseFontPath))
+        {
+            return WindowsChineseFontPath;
+        }
+
+        if (File.Exists(MacChineseFontPath))
+        {
+            return MacChineseFontPath;
+        }
+
+        if (File.Exists(MacChineseFontFallbackPath))
+        {
+            return MacChineseFontFallbackPath;
+        }
+
+        return string.Empty;
     }
 
     private static void EnsureFolderHierarchy(string assetFolderPath)

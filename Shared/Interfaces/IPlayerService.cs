@@ -84,6 +84,9 @@ namespace Shared.Interfaces
         public float ArenaHalfExtentX { get; set; }
         [MemoryPackOrder(5)]
         public float ArenaHalfExtentY { get; set; }
+        // Seconds remaining in the current round; 0 when no active round.
+        [MemoryPackOrder(6)]
+        public int RoundRemainingSeconds { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
