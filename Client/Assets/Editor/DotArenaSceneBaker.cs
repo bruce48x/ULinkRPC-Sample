@@ -123,11 +123,16 @@ internal static class DotArenaSceneBaker
         CreateRect(arenaRoot.transform, pixelSprite, "Board", Vector2.zero,
             new Vector2(arenaHalfWidth * 2f, arenaHalfHeight * 2f), BoardColor, -20);
 
-        for (var i = -8; i <= 8; i += 2)
+        const float gridStep = 2f;
+        for (var x = -arenaHalfWidth; x <= arenaHalfWidth + 0.01f; x += gridStep)
         {
-            CreateRect(arenaRoot.transform, pixelSprite, $"Vertical-{i}", new Vector2(i, 0f),
+            CreateRect(arenaRoot.transform, pixelSprite, $"Vertical-{Mathf.RoundToInt(x)}", new Vector2(x, 0f),
                 new Vector2(0.05f, arenaHalfHeight * 2f), GridColor, -10);
-            CreateRect(arenaRoot.transform, pixelSprite, $"Horizontal-{i}", new Vector2(0f, i),
+        }
+
+        for (var y = -arenaHalfHeight; y <= arenaHalfHeight + 0.01f; y += gridStep)
+        {
+            CreateRect(arenaRoot.transform, pixelSprite, $"Horizontal-{Mathf.RoundToInt(y)}", new Vector2(0f, y),
                 new Vector2(arenaHalfWidth * 2f, 0.05f), GridColor, -10);
         }
 

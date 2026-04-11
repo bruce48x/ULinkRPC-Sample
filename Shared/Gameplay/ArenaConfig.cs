@@ -7,7 +7,7 @@ namespace Shared.Gameplay
     public partial class ArenaConfig
     {
         [MemoryPackOrder(0)]
-        public Vector2 ArenaHalfExtents { get; set; } = new(10f, 10f);
+        public Vector2 ArenaHalfExtents { get; set; } = new(50f, 50f);
 
         [MemoryPackOrder(1)]
         public float RespawnInset { get; set; } = 3f;

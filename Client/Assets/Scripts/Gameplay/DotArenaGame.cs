@@ -34,6 +34,8 @@ namespace SampleClient.Gameplay
         private const int WindowWidth = 1200;
         private const int WindowHeight = 600;
         private const float ArenaVisualPadding = 1.8f;
+        private const float FollowCameraSize = 11.8f;
+        private const float CameraFollowSharpness = 7f;
         private const float PlayerNameOffsetY = 0.11f;
         private const float PlayerScoreOffsetY = -0.13f;
         private const float PickupPulseAmplitude = 0.08f;
@@ -1022,6 +1024,7 @@ namespace SampleClient.Gameplay
                 entry.Value.SetPosition(position);
             }
 
+            UpdateCameraFollow();
             UpdatePlayerOverlayViews();
 
             var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
@@ -1035,6 +1038,32 @@ namespace SampleClient.Gameplay
             {
                 dotView.UpdateJelly(Time.time);
             }
+        }
+
+        private void UpdateCameraFollow()
+        {
+            var camera = Camera.main;
+            if (camera == null)
+            {
+                return;
+            }
+
+            var targetPosition = Vector2.zero;
+            if (_views.TryGetValue(_localPlayerId, out var localView))
+            {
+                targetPosition = localView.GetPosition();
+            }
+
+            var halfVisibleHeight = Mathf.Max(0f, camera.orthographicSize - ArenaVisualPadding);
+            var halfVisibleWidth = halfVisibleHeight * camera.aspect;
+            var limitX = Mathf.Max(0f, ArenaHalfWidth - halfVisibleWidth);
+            var limitY = Mathf.Max(0f, ArenaHalfHeight - halfVisibleHeight);
+            var desired = new Vector3(
+                Mathf.Clamp(targetPosition.x, -limitX, limitX),
+                Mathf.Clamp(targetPosition.y, -limitY, limitY),
+                -10f);
+            var t = 1f - Mathf.Exp(-CameraFollowSharpness * Time.deltaTime);
+            camera.transform.position = Vector3.Lerp(camera.transform.position, desired, t);
         }
 
         private void HandleInput()
@@ -1227,7 +1256,7 @@ namespace SampleClient.Gameplay
             }
 
             mainCamera.orthographic = true;
-            mainCamera.orthographicSize = Mathf.Max(ArenaHalfWidth, ArenaHalfHeight) + ArenaVisualPadding;
+            mainCamera.orthographicSize = FollowCameraSize;
             mainCamera.backgroundColor = BackgroundColor;
             mainCamera.clearFlags = CameraClearFlags.SolidColor;
             mainCamera.transform.position = new Vector3(0f, 0f, -10f);
@@ -1297,9 +1326,10 @@ namespace SampleClient.Gameplay
             _playerOutlineSprite = CreateCircleOutlineSprite();
             _jellyShader = Shader.Find(JellyShaderName);
 
-            if (transform.Find("ArenaRoot") != null)
+            var existingRoot = transform.Find("ArenaRoot");
+            if (existingRoot != null)
             {
-                return;
+                Destroy(existingRoot.gameObject);
             }
 
             var arenaRoot = new GameObject("ArenaRoot");
@@ -1311,11 +1341,16 @@ namespace SampleClient.Gameplay
             CreateRect(arenaRoot.transform, "Board", Vector2.zero, new Vector2(ArenaHalfWidth * 2f, ArenaHalfHeight * 2f),
                 BoardColor, -20);
 
-            for (var i = -8; i <= 8; i += 2)
+            const float gridStep = 2f;
+            for (var x = -ArenaHalfWidth; x <= ArenaHalfWidth + 0.01f; x += gridStep)
             {
-                CreateRect(arenaRoot.transform, $"Vertical-{i}", new Vector2(i, 0f),
+                CreateRect(arenaRoot.transform, $"Vertical-{Mathf.RoundToInt(x)}", new Vector2(x, 0f),
                     new Vector2(0.05f, ArenaHalfHeight * 2f), GridColor, -10);
-                CreateRect(arenaRoot.transform, $"Horizontal-{i}", new Vector2(0f, i),
+            }
+
+            for (var y = -ArenaHalfHeight; y <= ArenaHalfHeight + 0.01f; y += gridStep)
+            {
+                CreateRect(arenaRoot.transform, $"Horizontal-{Mathf.RoundToInt(y)}", new Vector2(0f, y),
                     new Vector2(ArenaHalfWidth * 2f, 0.05f), GridColor, -10);
             }
 
