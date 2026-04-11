@@ -15,6 +15,7 @@ namespace Shared.Gameplay
         public int MinPlayersToStart { get; set; } = 2;
         public int TargetParticipantCount { get; set; } = 4;
         public int RestartDelayTicks { get; set; } = 60;
+        public float MaxRoundSeconds { get; set; } = 120f;
         public int EliminationCreditWindowTicks { get; set; } = 20;
         public float BaseSpeed { get; set; } = 6f;
         public float SpeedBoostMultiplier { get; set; } = 2f;
@@ -27,16 +28,19 @@ namespace Shared.Gameplay
         public float StunTimeSeconds { get; set; } = 0.2f;
         public float PickupRespawnMinSeconds { get; set; } = 2f;
         public float PickupRespawnMaxSeconds { get; set; } = 5f;
+        public float ShrinkStartDelaySeconds { get; set; } = 12f;
+        public float ShrinkDurationSeconds { get; set; } = 40f;
+        public Vector2 FinalArenaHalfExtents { get; set; } = new(14f, 14f);
         public string BotPrefix { get; set; } = "AI";
         public float BotEdgeAvoidDistance { get; set; } = 2.25f;
         public float BotEmergencyEdgeDistance { get; set; } = 1f;
-        public PickupType[] EnabledPickupTypes { get; set; } = { PickupType.SpeedBoost, PickupType.KnockbackBoost };
+        public PickupType[] EnabledPickupTypes { get; set; } = { PickupType.SpeedBoost, PickupType.KnockbackBoost, PickupType.ScorePoint };
     }
 
     public sealed class ArenaPlayerRegistration
     {
         public string PlayerId { get; set; } = string.Empty;
-        public int Score { get; set; } = 1;
+        public int Score { get; set; }
         public int PreferredSpawnIndex { get; set; } = -1;
         public bool IsBot { get; set; }
         public int BotNumber { get; set; }
@@ -88,6 +92,8 @@ namespace Shared.Gameplay
         private MatchEnd? _pendingMatchEnd;
         private int? _restartAtTick;
         private int _tick;
+        private float _roundElapsedSeconds;
+        private Vector2 _currentArenaHalfExtents;
         private string? _winnerPlayerId;
         private int _nextBotNumber = 1;
 
@@ -95,6 +101,7 @@ namespace Shared.Gameplay
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _respawnDelaySecondsCeiling = (int)MathF.Ceiling(Math.Max(1f, _options.RespawnDelaySeconds));
+            _currentArenaHalfExtents = options.Arena.ArenaHalfExtents;
         }
 
         public int TickCount => _tick;
@@ -206,6 +213,7 @@ namespace Shared.Gameplay
 
             if (_players.Count > 0)
             {
+                UpdateArenaBounds(deltaTime);
                 UpdateBotInputs();
                 SimulatePlayers(deltaTime);
                 UpdatePickups(deltaTime);
@@ -230,7 +238,9 @@ namespace Shared.Gameplay
             var state = new WorldState
             {
                 Tick = _tick,
-                RespawnDelaySeconds = _respawnDelaySecondsCeiling
+                RespawnDelaySeconds = _respawnDelaySecondsCeiling,
+                ArenaHalfExtentX = _currentArenaHalfExtents.x,
+                ArenaHalfExtentY = _currentArenaHalfExtents.y
             };
 
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
@@ -274,7 +284,59 @@ namespace Shared.Gameplay
             _restartAtTick = null;
             _winnerPlayerId = null;
             _tick = 0;
+            _roundElapsedSeconds = 0f;
+            _currentArenaHalfExtents = _options.Arena.ArenaHalfExtents;
             _nextBotNumber = 1;
+        }
+
+        private void UpdateArenaBounds(float deltaTime)
+        {
+            if (_players.Count < _options.MinPlayersToStart || _winnerPlayerId is not null)
+            {
+                _roundElapsedSeconds = 0f;
+                _currentArenaHalfExtents = _options.Arena.ArenaHalfExtents;
+                return;
+            }
+
+            _roundElapsedSeconds += deltaTime;
+
+            var baseHalfExtents = _options.Arena.ArenaHalfExtents;
+            var finalHalfExtents = new Vector2(
+                MathF.Min(baseHalfExtents.x, MathF.Max(2f, _options.FinalArenaHalfExtents.x)),
+                MathF.Min(baseHalfExtents.y, MathF.Max(2f, _options.FinalArenaHalfExtents.y)));
+
+            if (_roundElapsedSeconds <= _options.ShrinkStartDelaySeconds ||
+                _options.ShrinkDurationSeconds <= 0f)
+            {
+                _currentArenaHalfExtents = baseHalfExtents;
+            }
+            else
+            {
+                var progress = Math.Clamp(
+                    (_roundElapsedSeconds - _options.ShrinkStartDelaySeconds) / _options.ShrinkDurationSeconds,
+                    0f,
+                    1f);
+                _currentArenaHalfExtents = new Vector2(
+                    baseHalfExtents.x + ((finalHalfExtents.x - baseHalfExtents.x) * progress),
+                    baseHalfExtents.y + ((finalHalfExtents.y - baseHalfExtents.y) * progress));
+            }
+
+            foreach (var pickup in _pickups.Values)
+            {
+                if (!pickup.Active)
+                {
+                    continue;
+                }
+
+                if (MathF.Abs(pickup.Position.x) <= _currentArenaHalfExtents.x &&
+                    MathF.Abs(pickup.Position.y) <= _currentArenaHalfExtents.y)
+                {
+                    continue;
+                }
+
+                pickup.Active = false;
+                pickup.RespawnRemaining = 1f;
+            }
         }
 
         private void SimulatePlayers(float deltaTime)
@@ -446,8 +508,8 @@ namespace Shared.Gameplay
                     continue;
                 }
 
-                if (MathF.Abs(player.Position.x) <= _options.Arena.ArenaHalfExtents.x &&
-                    MathF.Abs(player.Position.y) <= _options.Arena.ArenaHalfExtents.y)
+                if (MathF.Abs(player.Position.x) <= _currentArenaHalfExtents.x &&
+                    MathF.Abs(player.Position.y) <= _currentArenaHalfExtents.y)
                 {
                     continue;
                 }
@@ -467,9 +529,6 @@ namespace Shared.Gameplay
                 {
                     AdjustScore(scorer, 1);
                 }
-
-                var penalty = Math.Max(1, (player.Score + 1) / 2);
-                AdjustScore(player, -penalty);
 
                 _pendingDeaths.Add(new PlayerDead
                 {
@@ -502,20 +561,25 @@ namespace Shared.Gameplay
                 return;
             }
 
-            if (_players.Values.Any(static p => !p.Alive))
-            {
-                return;
-            }
-
             var alivePlayers = _players.Values.Where(static p => p.Alive).ToArray();
-            if (alivePlayers.Length == 0 || _players.Count < _options.MinPlayersToStart)
+            if (_players.Count < _options.MinPlayersToStart)
             {
                 return;
             }
 
-            if (alivePlayers.Length == 1)
+            if (alivePlayers.Length <= 1 || _roundElapsedSeconds >= _options.MaxRoundSeconds)
             {
-                _winnerPlayerId = alivePlayers[0].PlayerId;
+                var winner = _players.Values
+                    .OrderByDescending(static player => player.Score)
+                    .ThenByDescending(static player => player.Alive)
+                    .ThenBy(static player => player.PlayerId, StringComparer.Ordinal)
+                    .FirstOrDefault();
+                if (winner is null)
+                {
+                    return;
+                }
+
+                _winnerPlayerId = winner.PlayerId;
                 _restartAtTick = _tick + _options.RestartDelayTicks;
                 _pendingMatchEnd = new MatchEnd
                 {
@@ -552,6 +616,14 @@ namespace Shared.Gameplay
                 player.LastTouchedTick = 0;
                 player.SpeedBoostRemaining = 0f;
                 player.KnockbackBoostRemaining = 0f;
+                player.Score = 0;
+                _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
+                _pendingScoreUpdates.Add(new ArenaScoreUpdate
+                {
+                    PlayerId = player.PlayerId,
+                    Score = player.Score,
+                    IsBot = player.IsBot
+                });
             }
         }
 
@@ -560,6 +632,8 @@ namespace Shared.Gameplay
             _winnerPlayerId = null;
             _pendingMatchEnd = null;
             _restartAtTick = null;
+            _roundElapsedSeconds = 0f;
+            _currentArenaHalfExtents = _options.Arena.ArenaHalfExtents;
         }
 
         private int ClaimSpawnIndex(int preferredSpawnIndex)
@@ -647,7 +721,7 @@ namespace Shared.Gameplay
 
         private static int NormalizeScore(int score)
         {
-            return Math.Max(1, score);
+            return Math.Max(0, score);
         }
 
         private float GetMoveSpeed(ArenaPlayer player)
@@ -676,6 +750,9 @@ namespace Shared.Gameplay
                 case PickupType.KnockbackBoost:
                     player.KnockbackBoostRemaining = _options.KnockbackBoostDurationSeconds;
                     break;
+                case PickupType.ScorePoint:
+                    AdjustScore(player, 1);
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(pickupType), pickupType, null);
             }
@@ -694,8 +771,8 @@ namespace Shared.Gameplay
 
         private Vector2 GetSpawnPosition(int index)
         {
-            var insetX = MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.x - _options.Arena.RespawnInset);
-            var insetY = MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.y - _options.Arena.RespawnInset);
+            var insetX = MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.RespawnInset);
+            var insetY = MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.RespawnInset);
             var points = new[]
             {
                 new Vector2(-insetX, -insetY),
@@ -713,10 +790,10 @@ namespace Shared.Gameplay
 
         private Vector2 GetRandomPickupPosition()
         {
-            var minX = -MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.x - _options.Arena.PickupSpawnInset);
-            var maxX = MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.x - _options.Arena.PickupSpawnInset);
-            var minY = -MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.y - _options.Arena.PickupSpawnInset);
-            var maxY = MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.y - _options.Arena.PickupSpawnInset);
+            var minX = -MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.PickupSpawnInset);
+            var maxX = MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.PickupSpawnInset);
+            var minY = -MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.PickupSpawnInset);
+            var maxY = MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.PickupSpawnInset);
 
             return new Vector2(
                 (float)(_random.NextDouble() * (maxX - minX)) + minX,
@@ -777,8 +854,8 @@ namespace Shared.Gameplay
 
         private Vector2 ComputeBotEdgeAvoidance(Vector2 position)
         {
-            var safeLimitX = MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.x - _options.Arena.PlayerCollisionRadius);
-            var safeLimitY = MathF.Max(0.5f, _options.Arena.ArenaHalfExtents.y - _options.Arena.PlayerCollisionRadius);
+            var safeLimitX = MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.PlayerCollisionRadius);
+            var safeLimitY = MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.PlayerCollisionRadius);
 
             var avoidance = Zero;
             avoidance.x = ComputeAxisAvoidance(position.x, safeLimitX);
@@ -859,7 +936,7 @@ namespace Shared.Gameplay
             UpsertPlayer(new ArenaPlayerRegistration
             {
                 PlayerId = botName,
-                Score = 1,
+                Score = 0,
                 PreferredSpawnIndex = GetNextSpawnIndex(),
                 IsBot = true,
                 BotNumber = botNumber

@@ -33,14 +33,14 @@ public sealed class GameArenaRuntime
             {
                 profile = new PlayerProfile
                 {
-                    Score = NormalizeScore(loginResult.Score <= 0 ? 1 : loginResult.Score),
+                    Score = 0,
                     SpawnIndex = -1
                 };
                 _profiles.Add(loginResult.UserId, profile);
             }
             else
             {
-                profile.Score = NormalizeScore(profile.Score <= 0 ? loginResult.Score : profile.Score);
+                profile.Score = NormalizeScore(profile.Score);
             }
 
             if (!_simulation.TryGetPlayerSnapshot(loginResult.UserId, out _))
@@ -63,7 +63,8 @@ public sealed class GameArenaRuntime
         {
             Code = 0,
             Token = loginResult.SessionToken,
-            PlayerId = loginResult.UserId
+            PlayerId = loginResult.UserId,
+            WinCount = loginResult.WinCount
         });
     }
 
@@ -160,9 +161,9 @@ public sealed class GameArenaRuntime
             }
         }
 
-        foreach (var scoreUpdate in result.ScoreUpdates.Where(static update => !update.IsBot))
+        if (result.MatchEnd is not null && _profiles.ContainsKey(result.MatchEnd.WinnerPlayerId))
         {
-            _ = PersistScoreAsync(scoreUpdate);
+            _ = PersistWinAsync(result.MatchEnd.WinnerPlayerId);
         }
     }
 
@@ -180,15 +181,15 @@ public sealed class GameArenaRuntime
 
     private static int NormalizeScore(int score)
     {
-        return Math.Max(1, score);
+        return Math.Max(0, score);
     }
 
-    private static async Task PersistScoreAsync(ArenaScoreUpdate update)
+    private static async Task PersistWinAsync(string playerId)
     {
         try
         {
-            var userGrain = ClusterClientRuntime.GrainFactory.GetGrain<IUserGrain>(update.PlayerId);
-            await userGrain.SetScoreAsync(update.Score).ConfigureAwait(false);
+            var userGrain = ClusterClientRuntime.GrainFactory.GetGrain<IUserGrain>(playerId);
+            await userGrain.AddWinAsync().ConfigureAwait(false);
         }
         catch
         {
@@ -209,7 +210,7 @@ public sealed class GameArenaRuntime
     private sealed class PlayerProfile
     {
         public int SpawnIndex { get; set; } = -1;
-        public int Score { get; set; } = 1;
+        public int Score { get; set; }
     }
 
     private sealed class ConnectedPlayer

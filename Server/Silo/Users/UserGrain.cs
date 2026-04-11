@@ -31,7 +31,10 @@ public sealed class UserState
     public bool IsOnline { get; set; }
 
     [Id(7)]
-    public float Score { get; set; } = 1f;
+    public float Score { get; set; }
+
+    [Id(8)]
+    public int WinCount { get; set; }
 }
 
 public sealed class UserGrain : Grain, IUserGrain
@@ -56,7 +59,7 @@ public sealed class UserGrain : Grain, IUserGrain
                 UserId = userId,
                 PasswordHash = passwordHash,
                 CreatedAtUtc = now,
-                Score = 1f
+                Score = 0f
             };
         }
         else if (!string.Equals(_state.State.PasswordHash, passwordHash, StringComparison.Ordinal))
@@ -77,7 +80,8 @@ public sealed class UserGrain : Grain, IUserGrain
             SessionToken = _state.State.SessionToken,
             LoginCount = _state.State.LoginCount,
             LastLoginAtUtc = _state.State.LastLoginAtUtc,
-            Score = NormalizeScore(_state.State.Score)
+            Score = NormalizeScore(_state.State.Score),
+            WinCount = Math.Max(0, _state.State.WinCount)
         };
     }
 
@@ -90,7 +94,8 @@ public sealed class UserGrain : Grain, IUserGrain
             CreatedAtUtc = _state.State.CreatedAtUtc,
             LastLoginAtUtc = _state.State.LastLoginAtUtc,
             IsOnline = _state.State.IsOnline,
-            Score = NormalizeScore(_state.State.Score)
+            Score = NormalizeScore(_state.State.Score),
+            WinCount = Math.Max(0, _state.State.WinCount)
         };
         return Task.FromResult(snapshot);
     }
@@ -117,9 +122,20 @@ public sealed class UserGrain : Grain, IUserGrain
         await _state.WriteStateAsync();
     }
 
+    public async Task AddWinAsync()
+    {
+        if (!_state.RecordExists)
+        {
+            return;
+        }
+
+        _state.State.WinCount = Math.Max(0, _state.State.WinCount + 1);
+        await _state.WriteStateAsync();
+    }
+
     private static int NormalizeScore(float score)
     {
-        return Math.Max(1, (int)Math.Round(score, MidpointRounding.AwayFromZero));
+        return Math.Max(0, (int)Math.Round(score, MidpointRounding.AwayFromZero));
     }
 
     private static string ComputePasswordHash(string password)

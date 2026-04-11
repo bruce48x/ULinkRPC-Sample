@@ -50,6 +50,8 @@ namespace Shared.Interfaces
         public string Token { get; set; } = "";
         [MemoryPackOrder(2)]
         public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(3)]
+        public int WinCount { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -78,6 +80,10 @@ namespace Shared.Interfaces
         public List<PlayerState> Players { get; set; } = new();
         [MemoryPackOrder(3)]
         public List<PickupState> Pickups { get; set; } = new();
+        [MemoryPackOrder(4)]
+        public float ArenaHalfExtentX { get; set; }
+        [MemoryPackOrder(5)]
+        public float ArenaHalfExtentY { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -148,6 +154,7 @@ namespace Shared.Interfaces
     public enum PickupType
     {
         SpeedBoost = 0,
-        KnockbackBoost = 1
+        KnockbackBoost = 1,
+        ScorePoint = 2
     }
 }

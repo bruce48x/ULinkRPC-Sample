@@ -65,11 +65,13 @@ namespace SampleClient.Gameplay
 
         private static readonly Color BackgroundColor = new(0.02f, 0.03f, 0.05f, 1f);
         private static readonly Color BoardColor = new(0.08f, 0.1f, 0.14f, 1f);
+        private static readonly Color SafeZoneColor = new(0.14f, 0.18f, 0.24f, 0.9f);
         private static readonly Color GridColor = new(0.75f, 0.86f, 0.94f, 0.1f);
         private static readonly Color BorderColor = new(1f, 0.84f, 0.31f, 0.24f);
         private static readonly Color DangerColor = new(1f, 0.24f, 0.24f, 0.08f);
         private static readonly Color PlayerOutlineColor = new(1f, 1f, 1f, 0.92f);
         private static readonly Color PlayerTextBackdropColor = new(0.04f, 0.06f, 0.1f, 0.72f);
+        private static readonly Color ScorePickupColor = new(0.22f, 0.9f, 1f, 0.95f);
         private static readonly Color SpeedPickupColor = new(1f, 0.86f, 0.22f, 0.95f);
         private static readonly Color KnockbackPickupColor = new(1f, 0.22f, 0.22f, 0.95f);
         private static readonly ArenaConfig GameplayConfig = ArenaConfig.CreateDefault();
@@ -115,6 +117,9 @@ namespace SampleClient.Gameplay
         private WorldState? _pendingWorldState;
         private readonly Queue<PlayerDead> _pendingDeaths = new();
         private MatchEnd? _pendingMatchEnd;
+        private int _localWinCount;
+        private bool _hasAuthenticatedProfile;
+        private string _authenticatedPlayerId = string.Empty;
 
         private Sprite _pixelSprite = null!;
         private Sprite _playerSprite = null!;
@@ -160,13 +165,19 @@ namespace SampleClient.Gameplay
         private TMP_InputField? _accountInputField;
         private TMP_InputField? _passwordInputField;
         private TMP_FontAsset? _tmpFontAsset;
+        private SpriteRenderer? _safeZoneRenderer;
+        private SpriteRenderer? _topBorderRenderer;
+        private SpriteRenderer? _bottomBorderRenderer;
+        private SpriteRenderer? _leftBorderRenderer;
+        private SpriteRenderer? _rightBorderRenderer;
+        private Vector2 _currentArenaHalfExtents = GameplayConfig.ArenaHalfExtents;
 #if UNITY_EDITOR
         private Vector2 _editorMoveOverride;
         private bool _editorDashOverride;
         private bool _hasEditorInputOverride;
 #endif
 
-        private bool HasActiveSession => _sessionMode == SessionMode.SinglePlayer || _isConnected;
+        private bool HasActiveSession => _sessionMode != SessionMode.None;
 
         private void Start()
         {
@@ -241,7 +252,7 @@ namespace SampleClient.Gameplay
             GUI.Label(new Rect(contentRect.x, contentRect.y, contentRect.width, 24f), "ULinkRPC Dot Arena", titleStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 24f, contentRect.width, 18f), $"\u72b6\u6001: {_status}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 44f, contentRect.width, 18f),
-                $"\u73a9\u5bb6: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   \u79ef\u5206: {GetLocalPlayerScoreText()}", bodyStyle);
+                $"\u73a9\u5bb6: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   \u79ef\u5206: {GetLocalPlayerScoreText()}   \u80dc\u573a: {_localWinCount}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 64f, contentRect.width, 18f),
                 $"\u670d\u52a1\u7aef Tick: {_lastWorldTick}   \u540c\u6b65\u4eba\u6570: {_views.Count}   Buff: {GetLocalPlayerBuffText()}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 84f, contentRect.width, 18f),
@@ -358,7 +369,7 @@ namespace SampleClient.Gameplay
         private void DrawModeSelect(Rect contentRect, GUIStyle bodyStyle)
         {
             GUI.Label(new Rect(contentRect.x, contentRect.y + 70f, contentRect.width, 36f),
-                "选择一种游玩方式。单机会直接进入并自动补足 AI 到 4 人。", bodyStyle);
+                $"选择一种游玩方式。单机会直接进入并自动补足 AI 到 4 人。\n{GetMenuLoginStatusText()}", bodyStyle);
 
             var previousEnabled = GUI.enabled;
             GUI.enabled = !_isConnecting;
@@ -569,7 +580,7 @@ namespace SampleClient.Gameplay
 
             SetText(_hudTitleText, "ULinkRPC \u70b9\u9635\u7ade\u6280\u573a");
             SetText(_hudStatusText, $"\u72b6\u6001: {_status}");
-            SetText(_hudPlayerText, $"\u73a9\u5bb6: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   \u79ef\u5206: {GetLocalPlayerScoreText()}");
+            SetText(_hudPlayerText, $"\u73a9\u5bb6: {(_localPlayerId.Length > 0 ? _localPlayerId : _account)}   \u79ef\u5206: {GetLocalPlayerScoreText()}   \u80dc\u573a: {_localWinCount}");
             SetText(_hudTickText, $"Tick: {_lastWorldTick}   \u540c\u6b65\u4eba\u6570: {_views.Count}   Buff: {GetLocalPlayerBuffText()}");
             SetText(_hudModeText, _sessionMode == SessionMode.SinglePlayer
                 ? "\u6a21\u5f0f: \u672c\u5730\u5355\u673a"
@@ -579,7 +590,7 @@ namespace SampleClient.Gameplay
 
             SetText(_entryTitleText, "\u70b9\u9635\u7ade\u6280\u573a");
             SetText(_entryStatusText, _status);
-            SetText(_modeSelectDescriptionText, "\u9009\u62e9\u6a21\u5f0f\u3002\u5355\u673a\u5c06\u7acb\u5373\u5f00\u59cb\uff0c\u5e76\u8865\u8db3 4 \u540d AI\u3002");
+            SetText(_modeSelectDescriptionText, $"\u9009\u62e9\u6a21\u5f0f\u3002\u5355\u673a\u5c06\u7acb\u5373\u5f00\u59cb\uff0c\u5e76\u8865\u8db3 4 \u540d AI\u3002\n{GetMenuLoginStatusText()}");
             SetText(_multiplayerSubtitleText, "\u8054\u673a\u5339\u914d");
             SetText(_accountLabelText, "\u8d26\u53f7");
             SetText(_passwordLabelText, "\u5bc6\u7801");
@@ -755,6 +766,9 @@ namespace SampleClient.Gameplay
                 }
 
                 _localPlayerId = string.IsNullOrWhiteSpace(reply.PlayerId) ? _account : reply.PlayerId;
+                _localWinCount = Math.Max(0, reply.WinCount);
+                _hasAuthenticatedProfile = true;
+                _authenticatedPlayerId = _localPlayerId;
                 _isConnected = true;
                 _sessionMode = SessionMode.Multiplayer;
                 _entryMenuState = EntryMenuState.Hidden;
@@ -840,7 +854,10 @@ namespace SampleClient.Gameplay
                 return;
             }
 
+            var previousArenaHalfExtents = _currentArenaHalfExtents;
             _lastWorldTick = worldState.Tick;
+            _currentArenaHalfExtents = new Vector2(worldState.ArenaHalfExtentX, worldState.ArenaHalfExtentY);
+            UpdateArenaVisuals();
             if (worldState.Players.Count != _lastLoggedPlayerCount)
             {
                 _lastLoggedPlayerCount = worldState.Players.Count;
@@ -875,6 +892,7 @@ namespace SampleClient.Gameplay
                 }
 
                 var previousState = renderState.State;
+                var previousScore = renderState.Score;
 
                 var currentPosition = view.GetPosition();
                 if (isNewView || isNewRenderState)
@@ -907,6 +925,13 @@ namespace SampleClient.Gameplay
                     player.SpeedBoostRemainingSeconds > 0, player.KnockbackBoostRemainingSeconds > 0);
                 if (player.PlayerId == _localPlayerId)
                 {
+                    if (player.Score > previousScore &&
+                        !(previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0) &&
+                        !(previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0))
+                    {
+                        PushEvent($"积分 +{player.Score - previousScore}");
+                    }
+
                     if (previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0)
                     {
                         PushEvent($"拾取{GetPickupDisplayName(PickupType.SpeedBoost)}: 移速提升 100%，持续 10 秒");
@@ -944,6 +969,12 @@ namespace SampleClient.Gameplay
                 }
             }
 
+            if (previousArenaHalfExtents.x >= ArenaHalfWidth - 0.05f &&
+                _currentArenaHalfExtents.x < previousArenaHalfExtents.x - 0.05f)
+            {
+                PushEvent("开始缩圈，注意边界", 2.5f);
+            }
+
             ApplyPickupState(worldState, collectedPickups);
             Debug.Log($"[DotArena] ApplyWorldState complete tick={worldState.Tick}, views={_views.Count}, renders={_renderStates.Count}");
         }
@@ -968,9 +999,17 @@ namespace SampleClient.Gameplay
 
         private void HandleMatchEnd(MatchEnd matchEnd)
         {
+            if (_sessionMode == SessionMode.Multiplayer &&
+                string.Equals(matchEnd.WinnerPlayerId, _localPlayerId, StringComparison.Ordinal))
+            {
+                _localWinCount += 1;
+            }
+
             PushEvent(matchEnd.WinnerPlayerId == _localPlayerId
                 ? "本局胜利"
                 : $"胜者: {matchEnd.WinnerPlayerId}");
+
+            _ = ReturnToMainMenuAfterMatchAsync(_sessionMode == SessionMode.Multiplayer);
         }
 
         private void TickLocalMatch()
@@ -999,6 +1038,8 @@ namespace SampleClient.Gameplay
                 if (step.MatchEnd != null)
                 {
                     HandleMatchEnd(step.MatchEnd);
+                    _singlePlayerTickAccumulator = 0f;
+                    break;
                 }
             }
 
@@ -1056,8 +1097,8 @@ namespace SampleClient.Gameplay
 
             var halfVisibleHeight = Mathf.Max(0f, camera.orthographicSize - ArenaVisualPadding);
             var halfVisibleWidth = halfVisibleHeight * camera.aspect;
-            var limitX = Mathf.Max(0f, ArenaHalfWidth - halfVisibleWidth);
-            var limitY = Mathf.Max(0f, ArenaHalfHeight - halfVisibleHeight);
+            var limitX = Mathf.Max(0f, CurrentArenaHalfWidth - halfVisibleWidth);
+            var limitY = Mathf.Max(0f, CurrentArenaHalfHeight - halfVisibleHeight);
             var desired = new Vector3(
                 Mathf.Clamp(targetPosition.x, -limitX, limitX),
                 Mathf.Clamp(targetPosition.y, -limitY, limitY),
@@ -1150,8 +1191,46 @@ namespace SampleClient.Gameplay
             _sessionMode = SessionMode.None;
             _localMatch = null;
             _entryMenuState = EntryMenuState.ModeSelect;
+            _hasAuthenticatedProfile = false;
+            _authenticatedPlayerId = string.Empty;
+            _localWinCount = 0;
             _status = ex == null ? "Disconnected" : $"Disconnected: {ex.Message}";
             Debug.LogWarning($"[DotArena] {_status}");
+        }
+
+        private async Task ReturnToMainMenuAfterMatchAsync(bool preserveLoginState)
+        {
+            var authenticatedPlayerId = _authenticatedPlayerId;
+            var localWinCount = _localWinCount;
+
+            if (_sessionMode == SessionMode.Multiplayer && _connection != null)
+            {
+                await DisposeConnectionAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                ResetSessionPresentation();
+                _sessionMode = SessionMode.None;
+                _localMatch = null;
+                _localPlayerId = string.Empty;
+            }
+
+            _entryMenuState = EntryMenuState.ModeSelect;
+            _status = "选择模式";
+            _eventMessage = "请选择单机或联机";
+
+            if (preserveLoginState)
+            {
+                _hasAuthenticatedProfile = true;
+                _authenticatedPlayerId = authenticatedPlayerId;
+                _localWinCount = localWinCount;
+            }
+            else
+            {
+                _hasAuthenticatedProfile = false;
+                _authenticatedPlayerId = string.Empty;
+                _localWinCount = 0;
+            }
         }
 
         private void BeginShutdown()
@@ -1202,6 +1281,7 @@ namespace SampleClient.Gameplay
                 {
                     _sessionMode = SessionMode.None;
                     _localPlayerId = string.Empty;
+                    _localMatch = null;
                 }
             }
         }
@@ -1277,6 +1357,16 @@ namespace SampleClient.Gameplay
             _eventMessage = "请选择单机或联机";
         }
 
+        private string GetMenuLoginStatusText()
+        {
+            if (!_hasAuthenticatedProfile || string.IsNullOrWhiteSpace(_authenticatedPlayerId))
+            {
+                return "未登录";
+            }
+
+            return $"已登录: {_authenticatedPlayerId}   胜场: {_localWinCount}";
+        }
+
         private void ApplyLaunchOverrides()
         {
             var launchArguments = Rpc.RpcLaunchArguments.ReadCurrentProcess();
@@ -1306,8 +1396,9 @@ namespace SampleClient.Gameplay
             _localMatch.UpsertPlayer(new ArenaPlayerRegistration
             {
                 PlayerId = _localPlayerId,
-                Score = 1
+                Score = 0
             });
+            _localWinCount = 0;
             _entryMenuState = EntryMenuState.Hidden;
             _status = "单机匹配中...";
             _eventMessage = "正在进入本地单机模式";
@@ -1340,6 +1431,8 @@ namespace SampleClient.Gameplay
 
             CreateRect(arenaRoot.transform, "Board", Vector2.zero, new Vector2(ArenaHalfWidth * 2f, ArenaHalfHeight * 2f),
                 BoardColor, -20);
+            _safeZoneRenderer = CreateRect(arenaRoot.transform, "SafeZone", Vector2.zero,
+                new Vector2(ArenaHalfWidth * 2f, ArenaHalfHeight * 2f), SafeZoneColor, -15);
 
             const float gridStep = 2f;
             for (var x = -ArenaHalfWidth; x <= ArenaHalfWidth + 0.01f; x += gridStep)
@@ -1354,14 +1447,15 @@ namespace SampleClient.Gameplay
                     new Vector2(ArenaHalfWidth * 2f, 0.05f), GridColor, -10);
             }
 
-            CreateRect(arenaRoot.transform, "TopBorder", new Vector2(0f, ArenaHalfHeight),
+            _topBorderRenderer = CreateRect(arenaRoot.transform, "TopBorder", new Vector2(0f, ArenaHalfHeight),
                 new Vector2(ArenaHalfWidth * 2f + 0.18f, 0.18f), BorderColor, -5);
-            CreateRect(arenaRoot.transform, "BottomBorder", new Vector2(0f, -ArenaHalfHeight),
+            _bottomBorderRenderer = CreateRect(arenaRoot.transform, "BottomBorder", new Vector2(0f, -ArenaHalfHeight),
                 new Vector2(ArenaHalfWidth * 2f + 0.18f, 0.18f), BorderColor, -5);
-            CreateRect(arenaRoot.transform, "LeftBorder", new Vector2(-ArenaHalfWidth, 0f),
+            _leftBorderRenderer = CreateRect(arenaRoot.transform, "LeftBorder", new Vector2(-ArenaHalfWidth, 0f),
                 new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
-            CreateRect(arenaRoot.transform, "RightBorder", new Vector2(ArenaHalfWidth, 0f),
+            _rightBorderRenderer = CreateRect(arenaRoot.transform, "RightBorder", new Vector2(ArenaHalfWidth, 0f),
                 new Vector2(0.18f, ArenaHalfHeight * 2f + 0.18f), BorderColor, -5);
+            UpdateArenaVisuals();
         }
 
         private void ResetSessionPresentation()
@@ -1389,11 +1483,14 @@ namespace SampleClient.Gameplay
             _pendingWorldState = null;
             _pendingDeaths.Clear();
             _pendingMatchEnd = null;
+            _localWinCount = _sessionMode == SessionMode.Multiplayer ? _localWinCount : 0;
             _lastWorldTick = -1;
             _lastLoggedPlayerCount = -1;
             _dashQueued = false;
             _nextInputAt = 0f;
             _singlePlayerTickAccumulator = 0f;
+            _currentArenaHalfExtents = GameplayConfig.ArenaHalfExtents;
+            UpdateArenaVisuals();
         }
 
         private void ApplyPickupState(WorldState worldState, Dictionary<PickupType, string> collectedPickups)
@@ -1629,7 +1726,7 @@ namespace SampleClient.Gameplay
             scoreLabel.transform.localScale = Vector3.one * PlayerScoreScale;
 
             var scoreText = scoreLabel.AddComponent<TextMesh>();
-            scoreText.text = "1";
+            scoreText.text = "0";
             scoreText.fontSize = 44;
             scoreText.characterSize = PlayerTextCharacterSize;
             scoreText.anchor = TextAnchor.MiddleCenter;
@@ -1639,7 +1736,7 @@ namespace SampleClient.Gameplay
             ConfigureTextRenderer(scoreText.GetComponent<MeshRenderer>(), PlayerTextSortingOrder);
 
             var view = new DotView(viewRoot, renderer, outlineRenderer, nameText, scoreText);
-            view.SetIdentity(playerId, 1);
+            view.SetIdentity(playerId, 0);
             view.ApplyPresentation(ResolveColor(playerId), PlayerLifeState.Idle, true, false, false);
             return view;
         }
@@ -1650,7 +1747,7 @@ namespace SampleClient.Gameplay
             return RemotePalette[index];
         }
 
-        private void CreateRect(Transform parent, string objectName, Vector2 position, Vector2 size, Color color,
+        private SpriteRenderer CreateRect(Transform parent, string objectName, Vector2 position, Vector2 size, Color color,
             int sortingOrder)
         {
             var rectangle = new GameObject(objectName);
@@ -1662,6 +1759,7 @@ namespace SampleClient.Gameplay
             renderer.sprite = _pixelSprite;
             renderer.color = color;
             renderer.sortingOrder = sortingOrder;
+            return renderer;
         }
 
         private PickupView CreatePickupView(PickupType pickupType)
@@ -1829,7 +1927,9 @@ namespace SampleClient.Gameplay
             var clone = new WorldState
             {
                 Tick = source.Tick,
-                RespawnDelaySeconds = source.RespawnDelaySeconds
+                RespawnDelaySeconds = source.RespawnDelaySeconds,
+                ArenaHalfExtentX = source.ArenaHalfExtentX,
+                ArenaHalfExtentY = source.ArenaHalfExtentY
             };
 
             foreach (var player in source.Players)
@@ -1975,6 +2075,7 @@ namespace SampleClient.Gameplay
         {
             return pickupType switch
             {
+                PickupType.ScorePoint => ScorePickupColor,
                 PickupType.SpeedBoost => SpeedPickupColor,
                 PickupType.KnockbackBoost => KnockbackPickupColor,
                 _ => Color.white
@@ -1985,6 +2086,7 @@ namespace SampleClient.Gameplay
         {
             return pickupType switch
             {
+                PickupType.ScorePoint => "积分点",
                 PickupType.SpeedBoost => "加速",
                 PickupType.KnockbackBoost => "冲击力",
                 _ => "Buff"
@@ -2015,6 +2117,38 @@ namespace SampleClient.Gameplay
         private static float ArenaHalfWidth => GameplayConfig.ArenaHalfExtents.x;
 
         private static float ArenaHalfHeight => GameplayConfig.ArenaHalfExtents.y;
+
+        private float CurrentArenaHalfWidth => _currentArenaHalfExtents.x;
+
+        private float CurrentArenaHalfHeight => _currentArenaHalfExtents.y;
+
+        private void UpdateArenaVisuals()
+        {
+            if (_safeZoneRenderer != null)
+            {
+                _safeZoneRenderer.transform.localScale = new Vector3(CurrentArenaHalfWidth * 2f, CurrentArenaHalfHeight * 2f, 1f);
+            }
+
+            UpdateBorderRenderer(_topBorderRenderer, new Vector2(0f, CurrentArenaHalfHeight),
+                new Vector2(CurrentArenaHalfWidth * 2f + 0.18f, 0.18f));
+            UpdateBorderRenderer(_bottomBorderRenderer, new Vector2(0f, -CurrentArenaHalfHeight),
+                new Vector2(CurrentArenaHalfWidth * 2f + 0.18f, 0.18f));
+            UpdateBorderRenderer(_leftBorderRenderer, new Vector2(-CurrentArenaHalfWidth, 0f),
+                new Vector2(0.18f, CurrentArenaHalfHeight * 2f + 0.18f));
+            UpdateBorderRenderer(_rightBorderRenderer, new Vector2(CurrentArenaHalfWidth, 0f),
+                new Vector2(0.18f, CurrentArenaHalfHeight * 2f + 0.18f));
+        }
+
+        private static void UpdateBorderRenderer(SpriteRenderer? renderer, Vector2 position, Vector2 size)
+        {
+            if (renderer == null)
+            {
+                return;
+            }
+
+            renderer.transform.localPosition = new Vector3(position.x, position.y, 0f);
+            renderer.transform.localScale = new Vector3(size.x, size.y, 1f);
+        }
 
         private static float PlayerVisualDiameter => GameplayConfig.PlayerVisualRadius * 2f;
 

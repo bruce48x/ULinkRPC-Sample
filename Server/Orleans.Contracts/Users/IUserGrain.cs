@@ -8,6 +8,7 @@ public interface IUserGrain : IGrainWithStringKey
     Task<UserProfileSnapshot> GetProfileAsync();
     Task SetOnlineAsync(bool isOnline);
     Task SetScoreAsync(int score);
+    Task AddWinAsync();
 }
 
 [GenerateSerializer]
@@ -27,6 +28,8 @@ public sealed class UserLoginResult
 
     [Id(4)]
     public int Score { get; set; }
+    [Id(5)]
+    public int WinCount { get; set; }
 }
 
 [GenerateSerializer]
@@ -49,5 +52,7 @@ public sealed class UserProfileSnapshot
 
     [Id(5)]
     public int Score { get; set; }
+    [Id(6)]
+    public int WinCount { get; set; }
 }
 
