@@ -520,6 +520,7 @@ namespace SampleClient.Gameplay
             _multiplayerSubtitleText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/SubtitleText");
             _accountLabelText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountLabel");
             _passwordLabelText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordLabel");
+            EnsureMultiplayerLabelLayout();
             _accountPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/AccountInput/Text Area/Placeholder");
             _passwordPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput/Text Area/Placeholder");
 
@@ -844,6 +845,35 @@ namespace SampleClient.Gameplay
             text.color = UiAccentTextColor;
             text.richText = false;
             _hudCountdownText = text;
+        }
+
+        private void EnsureMultiplayerLabelLayout()
+        {
+            FixMultiplayerLabelRect(_accountLabelText, -132f);
+            FixMultiplayerLabelRect(_passwordLabelText, -168f);
+        }
+
+        private static void FixMultiplayerLabelRect(TMP_Text? label, float y)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            var rect = label.rectTransform;
+
+            // Old baked scenes used left-top anchoring with a center-based x offset,
+            // pushing labels outside the panel. Normalize to center-top anchors.
+            var misplaced = rect.anchorMin == new Vector2(0f, 1f) && rect.anchorMax == new Vector2(0f, 1f) && rect.anchoredPosition.x < -100f;
+            if (!misplaced)
+            {
+                return;
+            }
+
+            rect.anchorMin = new Vector2(0.5f, 1f);
+            rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(-136f, y);
         }
 
         private Button? FindSceneUiButton(string path)

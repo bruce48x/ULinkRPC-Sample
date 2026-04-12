@@ -226,9 +226,9 @@ internal static class DotArenaSceneBaker
         AddLabel(multiplayer.transform, "SubtitleText", "\u8054\u673a\u5339\u914d", 13, FontStyles.Normal, TextAlignmentOptions.Top, SecondaryTextColor,
             new Vector2(0f, -96f), new Vector2(320f, 24f), centered: true);
         AddLabel(multiplayer.transform, "AccountLabel", "\u8d26\u53f7", 12, FontStyles.Normal, TextAlignmentOptions.Left, SecondaryTextColor,
-            new Vector2(-136f, -132f), new Vector2(60f, 24f));
+            new Vector2(-136f, -132f), new Vector2(60f, 24f), centered: true);
         AddLabel(multiplayer.transform, "PasswordLabel", "\u5bc6\u7801", 12, FontStyles.Normal, TextAlignmentOptions.Left, SecondaryTextColor,
-            new Vector2(-136f, -168f), new Vector2(60f, 24f));
+            new Vector2(-136f, -168f), new Vector2(60f, 24f), centered: true);
 
         CreateInputField(multiplayer.transform, pixelSprite, "AccountInput", new Vector2(30f, -132f), new Vector2(212f, 28f),
             "\u8bf7\u8f93\u5165\u8d26\u53f7", false);
