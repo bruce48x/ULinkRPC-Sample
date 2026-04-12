@@ -2082,7 +2082,8 @@ namespace SampleClient.Gameplay
                 Tick = source.Tick,
                 RespawnDelaySeconds = source.RespawnDelaySeconds,
                 ArenaHalfExtentX = source.ArenaHalfExtentX,
-                ArenaHalfExtentY = source.ArenaHalfExtentY
+                ArenaHalfExtentY = source.ArenaHalfExtentY,
+                RoundRemainingSeconds = source.RoundRemainingSeconds
             };
 
             foreach (var player in source.Players)
