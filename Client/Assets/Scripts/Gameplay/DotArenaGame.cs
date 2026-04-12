@@ -511,6 +511,7 @@ namespace SampleClient.Gameplay
             _hudHintText = FindSceneUiText("SceneUI/HUDPanel/HintText");
             _hudEventText = FindSceneUiText("SceneUI/HUDPanel/EventText");
             _hudCountdownText = FindSceneUiText("SceneUI/HUDPanel/CountdownText");
+            EnsureHudCountdownText();
 
             _entryTitleText = FindSceneUiText("SceneUI/EntryPanel/TitleText");
             _entryStatusText = FindSceneUiText("SceneUI/EntryPanel/StatusText");
@@ -813,6 +814,36 @@ namespace SampleClient.Gameplay
         {
             var target = transform.Find(path);
             return target != null ? target.GetComponent<TMP_Text>() : null;
+        }
+
+        private void EnsureHudCountdownText()
+        {
+            if (_hudCountdownText != null || _hudPanel == null)
+            {
+                return;
+            }
+
+            // Runtime fallback for scenes baked before CountdownText was added.
+            var countdownObject = new GameObject("CountdownText", typeof(RectTransform), typeof(TextMeshProUGUI));
+            countdownObject.transform.SetParent(_hudPanel.transform, false);
+
+            var rect = (RectTransform)countdownObject.transform;
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.anchoredPosition = new Vector2(-12f, -12f);
+            rect.sizeDelta = new Vector2(160f, 24f);
+
+            var text = countdownObject.GetComponent<TextMeshProUGUI>();
+            text.font = _tmpFontAsset ??= LoadTmpFontAsset();
+            text.fontSize = 14f;
+            text.fontStyle = FontStyles.Bold;
+            text.alignment = TextAlignmentOptions.TopRight;
+            text.enableWordWrapping = false;
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            text.color = UiAccentTextColor;
+            text.richText = false;
+            _hudCountdownText = text;
         }
 
         private Button? FindSceneUiButton(string path)
@@ -1435,11 +1466,6 @@ namespace SampleClient.Gameplay
                 return;
             }
 
-            if (_entryMenuState == EntryMenuState.ModeSelect && IsSinglePlayerHotkeyPressed())
-            {
-                _singlePlayerStartRequested = true;
-            }
-
             if (!_singlePlayerStartRequested)
             {
                 return;
@@ -1447,21 +1473,6 @@ namespace SampleClient.Gameplay
 
             _singlePlayerStartRequested = false;
             BeginSinglePlayerMatch();
-        }
-
-        private static bool IsSinglePlayerHotkeyPressed()
-        {
-            return IsKeyDown(KeyCode.Return) ||
-                   IsKeyDown(KeyCode.KeypadEnter) ||
-                   IsKeyDown(KeyCode.W) ||
-                   IsKeyDown(KeyCode.A) ||
-                   IsKeyDown(KeyCode.S) ||
-                   IsKeyDown(KeyCode.D) ||
-                   IsKeyDown(KeyCode.UpArrow) ||
-                   IsKeyDown(KeyCode.LeftArrow) ||
-                   IsKeyDown(KeyCode.DownArrow) ||
-                   IsKeyDown(KeyCode.RightArrow) ||
-                   IsKeyDown(KeyCode.Space);
         }
 
         private void ConfigureCamera()
