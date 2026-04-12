@@ -352,7 +352,30 @@ internal static class DotArenaSceneBaker
 
         fontAsset.name = "DotArenaCJK SDF";
         fontAsset.TryAddCharacters(UiCharacterSet, out _);
+
+        // Save the font asset itself first so we have a valid asset path for sub-objects.
         AssetDatabase.CreateAsset(fontAsset, TmpChineseFontAssetPath);
+
+        // Embed atlas textures as sub-assets so they survive domain reloads.
+        if (fontAsset.atlasTextures != null)
+        {
+            foreach (var atlas in fontAsset.atlasTextures)
+            {
+                if (atlas != null)
+                {
+                    atlas.name = fontAsset.name + " Atlas";
+                    AssetDatabase.AddObjectToAsset(atlas, fontAsset);
+                }
+            }
+        }
+
+        // Embed the default material as a sub-asset.
+        if (fontAsset.material != null)
+        {
+            fontAsset.material.name = fontAsset.name + " Material";
+            AssetDatabase.AddObjectToAsset(fontAsset.material, fontAsset);
+        }
+
         AssetDatabase.SaveAssets();
         AssetDatabase.ImportAsset(TmpChineseFontAssetPath, ImportAssetOptions.ForceUpdate);
         return AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(TmpChineseFontAssetPath);
