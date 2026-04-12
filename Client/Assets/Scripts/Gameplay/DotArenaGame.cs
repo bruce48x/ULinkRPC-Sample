@@ -598,11 +598,19 @@ namespace SampleClient.Gameplay
                 : $"\u5730\u5740: {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
             SetText(_hudHintText, "W/A/S/D \u79fb\u52a8\uff0cSpace \u51b2\u523a\u3002\u4f4d\u7f6e\u4ee5\u6743\u5a01\u72b6\u6001\u4e3a\u51c6\u3002");
             SetText(_hudEventText, $"\u4e8b\u4ef6: {GetCurrentEventMessage()}");
-            if (_lastRoundRemainingSeconds > 0)
+            if (hasSession)
             {
-                var minutes = _lastRoundRemainingSeconds / 60;
-                var seconds = _lastRoundRemainingSeconds % 60;
-                SetText(_hudCountdownText, $"Time: {minutes:D2}:{seconds:D2}");
+                if (_lastRoundRemainingSeconds > 0)
+                {
+                    var minutes = _lastRoundRemainingSeconds / 60;
+                    var seconds = _lastRoundRemainingSeconds % 60;
+                    SetText(_hudCountdownText, $"Time: {minutes:D2}:{seconds:D2}");
+                }
+                else
+                {
+                    // Round starting or between rounds
+                    SetText(_hudCountdownText, "Time: --:--");
+                }
             }
             else
             {

@@ -185,23 +185,24 @@ internal static class DotArenaSceneBaker
     private static void BuildHudPanel(DotArenaGame game, Transform parent, Sprite pixelSprite)
     {
         var panel = CreatePanel(parent, pixelSprite, "HUDPanel", PanelColor,
-            new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(416f, 176f));
+            new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(416f, 196f));
         AddLabel(panel.transform, "TitleText", "ULinkRPC \u70b9\u9635\u7ade\u6280\u573a", 16, FontStyles.Bold, TextAlignmentOptions.TopLeft, TextColor,
             new Vector2(12f, -10f), new Vector2(392f, 24f));
-        AddLabel(panel.transform, "StatusText", "\u72b6\u6001", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
-            new Vector2(12f, -38f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "PlayerText", "\u73a9\u5bb6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
-            new Vector2(12f, -58f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "TickText", "Tick", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
-            new Vector2(12f, -78f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "ModeText", "\u6a21\u5f0f", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
-            new Vector2(12f, -98f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "HintText", "\u63d0\u793a", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
-            new Vector2(12f, -118f), new Vector2(392f, 18f));
-        AddLabel(panel.transform, "EventText", "\u4e8b\u4ef6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
-            new Vector2(12f, -138f), new Vector2(392f, 18f));
+        // CountdownText placed prominently right below the title
         AddLabel(panel.transform, "CountdownText", "Time: 02:00", 14, FontStyles.Bold, TextAlignmentOptions.TopLeft, TextColor,
-            new Vector2(12f, -158f), new Vector2(392f, 18f));
+            new Vector2(12f, -38f), new Vector2(392f, 20f));
+        AddLabel(panel.transform, "StatusText", "\u72b6\u6001", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
+            new Vector2(12f, -62f), new Vector2(392f, 18f));
+        AddLabel(panel.transform, "PlayerText", "\u73a9\u5bb6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
+            new Vector2(12f, -82f), new Vector2(392f, 18f));
+        AddLabel(panel.transform, "TickText", "Tick", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
+            new Vector2(12f, -102f), new Vector2(392f, 18f));
+        AddLabel(panel.transform, "ModeText", "\u6a21\u5f0f", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
+            new Vector2(12f, -122f), new Vector2(392f, 18f));
+        AddLabel(panel.transform, "HintText", "\u63d0\u793a", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
+            new Vector2(12f, -142f), new Vector2(392f, 18f));
+        AddLabel(panel.transform, "EventText", "\u4e8b\u4ef6", 12, FontStyles.Normal, TextAlignmentOptions.TopLeft, SecondaryTextColor,
+            new Vector2(12f, -162f), new Vector2(392f, 18f));
     }
 
     private static void BuildEntryPanel(DotArenaGame game, Transform parent, Sprite pixelSprite)
