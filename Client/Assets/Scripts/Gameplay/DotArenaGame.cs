@@ -666,7 +666,7 @@ namespace SampleClient.Gameplay
 
             foreach (var text in _sceneUiRoot.GetComponentsInChildren<TMP_Text>(true))
             {
-                if (text.font != _tmpFontAsset)
+                if (text.font == null)
                 {
                     text.font = _tmpFontAsset;
                 }
@@ -787,23 +787,18 @@ namespace SampleClient.Gameplay
         private static TMP_FontAsset? LoadTmpFontAsset()
         {
             var projectFont = Resources.Load<TMP_FontAsset>(TmpFallbackFontAssetResourcePath);
-            if (IsUsableFont(projectFont))
+            if (projectFont != null)
             {
                 return projectFont;
             }
 
-            if (IsUsableFont(TMP_Settings.defaultFontAsset))
+            if (TMP_Settings.defaultFontAsset != null)
             {
                 return TMP_Settings.defaultFontAsset;
             }
 
             var fallback = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
-            return IsUsableFont(fallback) ? fallback : TMP_Settings.defaultFontAsset;
-        }
-
-        private static bool IsUsableFont(TMP_FontAsset? fontAsset)
-        {
-            return fontAsset != null && fontAsset.atlasTexture != null;
+            return fallback ?? TMP_Settings.defaultFontAsset;
         }
 
         private TMP_Text? FindSceneUiText(string path)
