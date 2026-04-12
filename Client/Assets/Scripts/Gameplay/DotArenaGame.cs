@@ -536,6 +536,8 @@ namespace SampleClient.Gameplay
 
             _accountInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/AccountInput");
             _passwordInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput");
+            EnsureInputFieldViewport(_accountInputField);
+            EnsureInputFieldViewport(_passwordInputField);
 
             ApplySceneUiTheme();
 
@@ -792,6 +794,26 @@ namespace SampleClient.Gameplay
             {
                 StyleText(placeholderText, UiMutedTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
             }
+        }
+
+        private static void EnsureInputFieldViewport(TMP_InputField? inputField)
+        {
+            if (inputField?.textViewport == null)
+            {
+                return;
+            }
+
+            var rect = inputField.textViewport;
+            var currentHeight = rect.rect.height;
+            if (currentHeight >= 18f)
+            {
+                return;
+            }
+
+            // Older baked scenes used 6px top/bottom padding, leaving only 16px text area.
+            // That clips CJK glyphs and can make typed content look nearly invisible.
+            rect.offsetMin = new Vector2(10f, 4f);
+            rect.offsetMax = new Vector2(-10f, -4f);
         }
 
         private static TMP_FontAsset? LoadTmpFontAsset()

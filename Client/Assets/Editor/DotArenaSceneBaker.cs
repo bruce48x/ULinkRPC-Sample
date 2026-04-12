@@ -493,8 +493,9 @@ internal static class DotArenaSceneBaker
         var textAreaRect = (RectTransform)textArea.transform;
         textAreaRect.anchorMin = Vector2.zero;
         textAreaRect.anchorMax = Vector2.one;
-        textAreaRect.offsetMin = new Vector2(10f, 6f);
-        textAreaRect.offsetMax = new Vector2(-10f, -6f);
+        // Keep enough vertical room for CJK glyphs in TMP input text.
+        textAreaRect.offsetMin = new Vector2(10f, 4f);
+        textAreaRect.offsetMax = new Vector2(-10f, -4f);
 
         var text = AddLabel(textArea.transform, "Text", string.Empty, 13, FontStyles.Normal, TextAlignmentOptions.Left, TextColor,
             Vector2.zero, Vector2.zero);
