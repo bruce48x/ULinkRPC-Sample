@@ -6,10 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Shared.Gameplay;
 using Shared.Interfaces;
-using ULinkRPC.Client;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 using static SampleClient.Gameplay.DotArenaTuning;
 using Object = UnityEngine.Object;
 
