@@ -55,7 +55,7 @@ namespace SampleClient.Gameplay
             _scoreText.text = DotArenaPresentation.FormatScore(score);
         }
 
-        public void ApplyPresentation(Color baseColor, PlayerLifeState state, bool alive, bool hasSpeedBoost, bool hasKnockbackBoost)
+        public void ApplyPresentation(Color baseColor, PlayerLifeState state, bool alive, bool hasSpeedBoost, bool hasKnockbackBoost, bool hasShield)
         {
             var color = baseColor;
             if (!alive)
@@ -81,13 +81,19 @@ namespace SampleClient.Gameplay
                 color = Color.Lerp(color, KnockbackPickupColor, 0.33f);
             }
 
+            if (hasShield)
+            {
+                color = Color.Lerp(color, ShieldPickupColor, 0.38f);
+            }
+
             _renderer.color = color;
             _outlineRenderer.color = alive
                 ? PlayerOutlineColor
                 : new Color(PlayerOutlineColor.r, PlayerOutlineColor.g, PlayerOutlineColor.b, 0.45f);
-            var scaleBoost = hasSpeedBoost || hasKnockbackBoost ? 1.08f : 1f;
+            var scaleBoost = hasSpeedBoost || hasKnockbackBoost || hasShield ? 1.08f : 1f;
             Root.transform.localScale = new Vector3(PlayerVisualDiameter * scaleBoost, PlayerVisualDiameter * scaleBoost, 1f);
-            _outlineRenderer.transform.localScale = new Vector3(1.14f, 1.14f, 1f);
+            var outlineScale = hasShield ? 1.24f : 1.14f;
+            _outlineRenderer.transform.localScale = new Vector3(outlineScale, outlineScale, 1f);
         }
 
         private static void UpdateMaterial(SpriteRenderer renderer, float time, float impactPulse, float wobbleScale)

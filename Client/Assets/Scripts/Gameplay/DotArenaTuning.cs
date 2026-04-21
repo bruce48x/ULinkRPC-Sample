@@ -57,6 +57,8 @@ namespace SampleClient.Gameplay
         public static readonly Color ScorePickupColor = new(0.22f, 0.9f, 1f, 0.95f);
         public static readonly Color SpeedPickupColor = new(1f, 0.86f, 0.22f, 0.95f);
         public static readonly Color KnockbackPickupColor = new(1f, 0.22f, 0.22f, 0.95f);
+        public static readonly Color ShieldPickupColor = new(0.3f, 0.82f, 1f, 0.95f);
+        public static readonly Color BonusScorePickupColor = new(0.3f, 1f, 0.6f, 0.95f);
         public static readonly ArenaConfig GameplayConfig = ArenaConfig.CreateDefault();
 
         public static readonly Color[] RemotePalette =

@@ -25,6 +25,8 @@ namespace Shared.Gameplay
         public float PushForce { get; set; } = 10f;
         public float KnockbackBoostMultiplier { get; set; } = 3f;
         public float KnockbackBoostDurationSeconds { get; set; } = 5f;
+        public float ShieldDurationSeconds { get; set; } = 8f;
+        public int BonusScoreAmount { get; set; } = 3;
         public float StunTimeSeconds { get; set; } = 0.2f;
         public float PickupRespawnMinSeconds { get; set; } = 2f;
         public float PickupRespawnMaxSeconds { get; set; } = 5f;
@@ -34,7 +36,14 @@ namespace Shared.Gameplay
         public string BotPrefix { get; set; } = "AI";
         public float BotEdgeAvoidDistance { get; set; } = 2.25f;
         public float BotEmergencyEdgeDistance { get; set; } = 1f;
-        public PickupType[] EnabledPickupTypes { get; set; } = { PickupType.SpeedBoost, PickupType.KnockbackBoost, PickupType.ScorePoint };
+        public PickupType[] EnabledPickupTypes { get; set; } =
+        {
+            PickupType.SpeedBoost,
+            PickupType.KnockbackBoost,
+            PickupType.ScorePoint,
+            PickupType.Shield,
+            PickupType.BonusScore
+        };
     }
 
     public sealed class ArenaPlayerRegistration
@@ -260,7 +269,8 @@ namespace Shared.Gameplay
                     RespawnRemainingSeconds = player.Alive ? 0 : (int)MathF.Ceiling(player.RespawnRemaining),
                     Score = player.Score,
                     SpeedBoostRemainingSeconds = (int)MathF.Ceiling(player.SpeedBoostRemaining),
-                    KnockbackBoostRemainingSeconds = (int)MathF.Ceiling(player.KnockbackBoostRemaining)
+                    KnockbackBoostRemainingSeconds = (int)MathF.Ceiling(player.KnockbackBoostRemaining),
+                    ShieldRemainingSeconds = (int)MathF.Ceiling(player.ShieldRemaining)
                 });
             }
 
@@ -366,6 +376,7 @@ namespace Shared.Gameplay
                 if (player.DashRemaining > 0f) player.DashRemaining = MathF.Max(0f, player.DashRemaining - deltaTime);
                 if (player.SpeedBoostRemaining > 0f) player.SpeedBoostRemaining = MathF.Max(0f, player.SpeedBoostRemaining - deltaTime);
                 if (player.KnockbackBoostRemaining > 0f) player.KnockbackBoostRemaining = MathF.Max(0f, player.KnockbackBoostRemaining - deltaTime);
+                if (player.ShieldRemaining > 0f) player.ShieldRemaining = MathF.Max(0f, player.ShieldRemaining - deltaTime);
 
                 var desired = player.Input;
                 if (LengthSquared(desired) > 1f)
@@ -517,6 +528,21 @@ namespace Shared.Gameplay
                     continue;
                 }
 
+                if (player.ShieldRemaining > 0f)
+                {
+                    player.Velocity = Zero;
+                    player.Input = Zero;
+                    player.DashDirection = Zero;
+                    player.DashRemaining = 0f;
+                    player.PendingDash = false;
+                    player.Position = new Vector2(
+                        Math.Clamp(player.Position.x, -_currentArenaHalfExtents.x, _currentArenaHalfExtents.x),
+                        Math.Clamp(player.Position.y, -_currentArenaHalfExtents.y, _currentArenaHalfExtents.y));
+                    player.ShieldRemaining = 0f;
+                    player.StunRemaining = MathF.Max(player.StunRemaining, _options.StunTimeSeconds * 1.5f);
+                    continue;
+                }
+
                 player.Alive = false;
                 player.Velocity = Zero;
                 player.Input = Zero;
@@ -527,6 +553,7 @@ namespace Shared.Gameplay
                 player.RespawnRemaining = Math.Max(1f, _options.RespawnDelaySeconds);
                 player.SpeedBoostRemaining = 0f;
                 player.KnockbackBoostRemaining = 0f;
+                player.ShieldRemaining = 0f;
 
                 if (TryGetScoringPlayer(player, out var scorer))
                 {
@@ -619,6 +646,7 @@ namespace Shared.Gameplay
                 player.LastTouchedTick = 0;
                 player.SpeedBoostRemaining = 0f;
                 player.KnockbackBoostRemaining = 0f;
+                player.ShieldRemaining = 0f;
                 player.Score = 0;
                 _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
                 _pendingScoreUpdates.Add(new ArenaScoreUpdate
@@ -712,6 +740,7 @@ namespace Shared.Gameplay
             player.LastTouchedTick = 0;
             player.SpeedBoostRemaining = 0f;
             player.KnockbackBoostRemaining = 0f;
+            player.ShieldRemaining = 0f;
         }
 
         private static PlayerLifeState GetLifeState(ArenaPlayer player)
@@ -755,6 +784,12 @@ namespace Shared.Gameplay
                     break;
                 case PickupType.ScorePoint:
                     AdjustScore(player, 1);
+                    break;
+                case PickupType.Shield:
+                    player.ShieldRemaining = _options.ShieldDurationSeconds;
+                    break;
+                case PickupType.BonusScore:
+                    AdjustScore(player, _options.BonusScoreAmount);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(pickupType), pickupType, null);
@@ -1028,6 +1063,7 @@ namespace Shared.Gameplay
             public int LastTouchedTick { get; set; }
             public float SpeedBoostRemaining { get; set; }
             public float KnockbackBoostRemaining { get; set; }
+            public float ShieldRemaining { get; set; }
         }
     }
 }

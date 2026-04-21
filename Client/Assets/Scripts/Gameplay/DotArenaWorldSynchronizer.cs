@@ -23,6 +23,7 @@ namespace SampleClient.Gameplay
         private readonly Action<string> _pushEvent;
         private readonly Action<string, float> _pushEventWithDuration;
         private readonly Action<string> _setEventMessage;
+        private readonly Func<string?> _getLocalEquippedCosmeticId;
 
         public DotArenaWorldSynchronizer(
             Dictionary<string, DotView> views,
@@ -36,7 +37,8 @@ namespace SampleClient.Gameplay
             Action updateArenaVisuals,
             Action<string> pushEvent,
             Action<string, float> pushEventWithDuration,
-            Action<string> setEventMessage)
+            Action<string> setEventMessage,
+            Func<string?> getLocalEquippedCosmeticId)
         {
             _views = views;
             _renderStates = renderStates;
@@ -50,6 +52,7 @@ namespace SampleClient.Gameplay
             _pushEvent = pushEvent;
             _pushEventWithDuration = pushEventWithDuration;
             _setEventMessage = setEventMessage;
+            _getLocalEquippedCosmeticId = getLocalEquippedCosmeticId;
         }
 
         public void ApplyWorldState(
@@ -105,6 +108,9 @@ namespace SampleClient.Gameplay
 
                 var previousState = renderState.State;
                 var previousScore = renderState.Score;
+                var previousSpeedBuff = renderState.SpeedBoostRemainingSeconds;
+                var previousKnockbackBuff = renderState.KnockbackBoostRemainingSeconds;
+                var previousShieldBuff = renderState.ShieldRemainingSeconds;
 
                 var currentPosition = view.GetPosition();
                 if (isNewView || isNewRenderState)
@@ -118,10 +124,9 @@ namespace SampleClient.Gameplay
                 renderState.Alive = player.Alive;
                 renderState.State = player.State;
                 renderState.Score = player.Score;
-                var previousSpeedBuff = renderState.SpeedBoostRemainingSeconds;
-                var previousKnockbackBuff = renderState.KnockbackBoostRemainingSeconds;
                 renderState.SpeedBoostRemainingSeconds = player.SpeedBoostRemainingSeconds;
                 renderState.KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds;
+                renderState.ShieldRemainingSeconds = player.ShieldRemainingSeconds;
 
                 view.SetIdentity(player.PlayerId, player.Score);
                 if (_playerOverlayViews.TryGetValue(player.PlayerId, out var overlay))
@@ -135,12 +140,17 @@ namespace SampleClient.Gameplay
                     view.TriggerCollisionJelly();
                 }
 
+                var cosmeticId = player.PlayerId == localPlayerId
+                    ? _getLocalEquippedCosmeticId()
+                    : null;
+
                 view.ApplyPresentation(
-                    DotArenaPresentation.ResolvePlayerColor(player.PlayerId),
+                    DotArenaPresentation.ResolvePlayerColor(player.PlayerId, cosmeticId),
                     player.State,
                     player.Alive,
                     player.SpeedBoostRemainingSeconds > 0,
-                    player.KnockbackBoostRemainingSeconds > 0);
+                    player.KnockbackBoostRemainingSeconds > 0,
+                    player.ShieldRemainingSeconds > 0);
 
                 if (player.PlayerId == localPlayerId)
                 {
@@ -148,23 +158,30 @@ namespace SampleClient.Gameplay
                         !(previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0) &&
                         !(previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0))
                     {
-                        _pushEvent($"积分 +{player.Score - previousScore}");
+                        var scoreDelta = player.Score - previousScore;
+                        var prefix = scoreDelta >= 2 ? "Bonus score" : "Score";
+                        _pushEvent($"{prefix} +{scoreDelta}");
                     }
 
                     if (previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0)
                     {
-                        _pushEvent($"拾取{DotArenaPresentation.GetPickupDisplayName(PickupType.SpeedBoost)}: 移速提升 100%，持续 10 秒");
+                        _pushEvent($"Picked up {DotArenaPresentation.GetPickupDisplayName(PickupType.SpeedBoost)}: movement doubled.");
                     }
 
                     if (previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0)
                     {
-                        _pushEvent($"拾取{DotArenaPresentation.GetPickupDisplayName(PickupType.KnockbackBoost)}: 撞飞增强 50%，持续 5 秒");
+                        _pushEvent($"Picked up {DotArenaPresentation.GetPickupDisplayName(PickupType.KnockbackBoost)}: push power increased.");
+                    }
+
+                    if (previousShieldBuff <= 0 && player.ShieldRemainingSeconds > 0)
+                    {
+                        _pushEvent($"Picked up {DotArenaPresentation.GetPickupDisplayName(PickupType.Shield)}: absorb one elimination.");
                     }
                 }
 
                 if (_views.Count >= 2 && worldState.Players.Exists(static p => p.Alive))
                 {
-                    _setEventMessage("对局进行中");
+                    _setEventMessage("Match in progress");
                 }
             }
 
@@ -192,7 +209,7 @@ namespace SampleClient.Gameplay
             if (previousArenaHalfExtents.x >= GameplayConfig.ArenaHalfExtents.x - 0.05f &&
                 currentArenaHalfExtents.x < previousArenaHalfExtents.x - 0.05f)
             {
-                _pushEventWithDuration("开始缩圈，注意边界", 2.5f);
+                _pushEventWithDuration("Ring is closing. Stay inside the arena.", 2.5f);
             }
 
             ApplyPickupState(worldState, collectedPickups);

@@ -13,8 +13,13 @@ namespace SampleClient.Gameplay
             return score.ToString();
         }
 
-        public static Color ResolvePlayerColor(string playerId)
+        public static Color ResolvePlayerColor(string playerId, string? cosmeticId = null)
         {
+            if (!string.IsNullOrWhiteSpace(cosmeticId))
+            {
+                return ResolveCosmeticColor(cosmeticId);
+            }
+
             var index = GetStableColorIndex(playerId);
             return RemotePalette[index];
         }
@@ -26,6 +31,8 @@ namespace SampleClient.Gameplay
                 PickupType.ScorePoint => ScorePickupColor,
                 PickupType.SpeedBoost => SpeedPickupColor,
                 PickupType.KnockbackBoost => KnockbackPickupColor,
+                PickupType.Shield => ShieldPickupColor,
+                PickupType.BonusScore => BonusScorePickupColor,
                 _ => Color.white
             };
         }
@@ -34,10 +41,12 @@ namespace SampleClient.Gameplay
         {
             return pickupType switch
             {
-                PickupType.ScorePoint => "积分点",
-                PickupType.SpeedBoost => "加速",
-                PickupType.KnockbackBoost => "冲击力",
-                _ => "Buff"
+                PickupType.ScorePoint => "Score",
+                PickupType.SpeedBoost => "Speed",
+                PickupType.KnockbackBoost => "Impact",
+                PickupType.Shield => "Shield",
+                PickupType.BonusScore => "Bonus",
+                _ => "Pickup"
             };
         }
 
@@ -61,6 +70,17 @@ namespace SampleClient.Gameplay
 
                 return (int)(hash % (uint)RemotePalette.Length);
             }
+        }
+
+        private static Color ResolveCosmeticColor(string cosmeticId)
+        {
+            return cosmeticId switch
+            {
+                "skin_crimson" => new Color(0.92f, 0.22f, 0.28f, 1f),
+                "skin_glacier" => new Color(0.42f, 0.78f, 1f, 1f),
+                "skin_sunburst" => new Color(1f, 0.74f, 0.18f, 1f),
+                _ => new Color(0.3f, 0.78f, 0.96f, 1f)
+            };
         }
     }
 }

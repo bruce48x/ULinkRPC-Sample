@@ -114,6 +114,8 @@ namespace Shared.Interfaces
         public int SpeedBoostRemainingSeconds { get; set; }
         [MemoryPackOrder(10)]
         public int KnockbackBoostRemainingSeconds { get; set; }
+        [MemoryPackOrder(11)]
+        public int ShieldRemainingSeconds { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -158,6 +160,8 @@ namespace Shared.Interfaces
     {
         SpeedBoost = 0,
         KnockbackBoost = 1,
-        ScorePoint = 2
+        ScorePoint = 2,
+        Shield = 3,
+        BonusScore = 4
     }
 }
