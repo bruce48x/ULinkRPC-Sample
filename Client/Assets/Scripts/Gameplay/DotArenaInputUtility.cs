@@ -44,6 +44,7 @@ namespace SampleClient.Gameplay
                 KeyCode.LeftArrow => keyboard.leftArrowKey,
                 KeyCode.RightArrow => keyboard.rightArrowKey,
                 KeyCode.Space => keyboard.spaceKey,
+                KeyCode.P => keyboard.pKey,
                 _ => null
             };
         }

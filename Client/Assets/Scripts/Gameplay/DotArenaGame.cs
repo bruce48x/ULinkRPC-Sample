@@ -80,6 +80,7 @@ namespace SampleClient.Gameplay
         private bool _shutdownStarted;
         private bool _ignoreDisconnectCallback;
         private string _lastLoggedInputVector = string.Empty;
+        private bool _showDebugPanel;
         private int _lastRoundRemainingSeconds;
         private MatchSettlementSummary? _settlementSummary;
         private DotArenaMetaState? _metaState;
@@ -675,6 +676,8 @@ namespace SampleClient.Gameplay
                 LastWorldTick = _lastWorldTick,
                 ViewCount = _views.Count,
                 LocalPlayerBuffText = GetLocalPlayerBuffText(),
+                DebugPanelVisible = _showDebugPanel,
+                DebugPanelDetail = BuildDebugPanelDetail(),
                 Host = _host,
                 Port = _port,
                 Path = _path,
@@ -773,6 +776,11 @@ namespace SampleClient.Gameplay
 
         private void CaptureInputIntent()
         {
+            if (DotArenaInputUtility.IsKeyDown(KeyCode.P))
+            {
+                _showDebugPanel = !_showDebugPanel;
+            }
+
             if (ConsumeEditorDashOverride())
             {
                 _dashQueued = true;
@@ -1359,7 +1367,7 @@ namespace SampleClient.Gameplay
             _localMatch.UpsertPlayer(new ArenaPlayerRegistration
             {
                 PlayerId = _localPlayerId,
-                Score = 0
+                Score = 1
             });
             _localWinCount = 0;
             _entryMenuState = EntryMenuState.Hidden;
@@ -1979,6 +1987,30 @@ namespace SampleClient.Gameplay
                 : $"Next: Return to Mode Select or replay {GetSinglePlayerPresetLabel(_currentArenaMapVariant, _currentArenaRuleVariant)}.";
         }
 
+        private string BuildDebugPanelDetail()
+        {
+            var endpoint = Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path);
+            var mode = _sessionMode switch
+            {
+                SessionMode.SinglePlayer => "Single-player",
+                SessionMode.Multiplayer => "Multiplayer",
+                _ => "None"
+            };
+
+            return
+                $"Status: {_status}\n" +
+                $"Flow: {_flowState} / Entry: {_entryMenuState}\n" +
+                $"Mode: {mode}\n" +
+                $"Player: {_localPlayerId}\n" +
+                $"Hint: W/A/S/D move, Space dash, P debug\n" +
+                $"Tick: {_lastWorldTick}\n" +
+                $"Views: {_views.Count}\n" +
+                $"Buff: {GetLocalPlayerBuffText()}\n" +
+                $"Event: {GetCurrentEventMessage()}\n" +
+                $"Endpoint: {endpoint}\n" +
+                $"Connected: {IsConnected} / Connecting: {IsConnecting}";
+        }
+
         private string BuildMatchmakingDetail()
         {
             if (_sessionMode == SessionMode.SinglePlayer)
@@ -1999,10 +2031,10 @@ namespace SampleClient.Gameplay
 
             if (IsInMultiplayerLobby())
             {
-                return $"Online: {meta.PlayerId}  Wins: {meta.TotalWins}  Coins: {meta.SoftCurrency}  Status: Ready";
+                return $"{meta.PlayerId}   Wins {meta.TotalWins}   Coins {meta.SoftCurrency}   Online Ready";
             }
 
-            return $"Player: {meta.PlayerId}  Lv.{meta.Level}  XP: {meta.Experience}/{GetMetaNextLevelRequirement(meta.Level)}  Coins: {meta.SoftCurrency}";
+            return $"{meta.PlayerId}   Lv.{meta.Level}   XP {meta.Experience}/{GetMetaNextLevelRequirement(meta.Level)}   Coins {meta.SoftCurrency}";
         }
 
         private string BuildMetaLobbyHighlights()
@@ -2022,11 +2054,11 @@ namespace SampleClient.Gameplay
 
             if (IsInMultiplayerLobby())
             {
-                return $"QUEUE STATUS  Ready to match\nRECENT RESULT  {recentResult}\nREADY TASKS  {readyTaskCount}\nSHOP READY  {shopSummary.AffordableAndUnownedCount}";
+                return $"Ready to match now   |   Recent: {recentResult}   |   Claimable tasks: {readyTaskCount}   |   Shop ready: {shopSummary.AffordableAndUnownedCount}";
             }
 
             var previewPreset = GetPreviewSinglePlayerPreset();
-            return $"NEXT PRESET  {GetSinglePlayerPresetLabel(previewPreset.MapVariant, previewPreset.RuleVariant)}\nRECENT RESULT  {recentResult}\nREADY TASKS  {readyTaskCount}\nSHOP READY  {shopSummary.AffordableAndUnownedCount}";
+            return $"Next preset: {GetSinglePlayerPresetLabel(previewPreset.MapVariant, previewPreset.RuleVariant)}   |   Recent: {recentResult}   |   Claimable tasks: {readyTaskCount}   |   Shop ready: {shopSummary.AffordableAndUnownedCount}";
         }
 
         private string BuildMetaProfileDetail()
@@ -2208,8 +2240,8 @@ namespace SampleClient.Gameplay
         private string BuildMetaFooterHint()
         {
             return IsInMultiplayerLobby()
-                ? "Multiplayer lobby: Start Match enters queue. Log Out returns to mode select."
-                : "Lobby preset, tasks, shop, and settings can be changed directly from the lobby panel.";
+                ? "Start Match enters queue. Log Out returns to mode select."
+                : "Use the top tabs to switch sections. Start from Lobby or Tasks.";
         }
 
         private void HandleLobbyPresetAction(bool isPrimaryAction)

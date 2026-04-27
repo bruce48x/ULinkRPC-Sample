@@ -33,7 +33,7 @@ public sealed class GameArenaRuntime
             {
                 profile = new PlayerProfile
                 {
-                    Score = 0,
+                    Score = 1,
                     SpawnIndex = -1
                 };
                 _profiles.Add(loginResult.UserId, profile);

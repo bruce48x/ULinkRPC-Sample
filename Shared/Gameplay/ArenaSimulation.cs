@@ -89,6 +89,7 @@ namespace Shared.Gameplay
 
     public sealed class ArenaSimulation
     {
+        private const int SpawnScore = 1;
         private static readonly Vector2 Zero = new(0f, 0f);
 
         private readonly List<PlayerDead> _pendingDeaths = new();
@@ -647,7 +648,7 @@ namespace Shared.Gameplay
                 player.SpeedBoostRemaining = 0f;
                 player.KnockbackBoostRemaining = 0f;
                 player.ShieldRemaining = 0f;
-                player.Score = 0;
+                player.Score = SpawnScore;
                 _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
                 _pendingScoreUpdates.Add(new ArenaScoreUpdate
                 {
@@ -741,6 +742,14 @@ namespace Shared.Gameplay
             player.SpeedBoostRemaining = 0f;
             player.KnockbackBoostRemaining = 0f;
             player.ShieldRemaining = 0f;
+            player.Score = SpawnScore;
+            _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
+            _pendingScoreUpdates.Add(new ArenaScoreUpdate
+            {
+                PlayerId = player.PlayerId,
+                Score = player.Score,
+                IsBot = player.IsBot
+            });
         }
 
         private static PlayerLifeState GetLifeState(ArenaPlayer player)
@@ -974,7 +983,7 @@ namespace Shared.Gameplay
             UpsertPlayer(new ArenaPlayerRegistration
             {
                 PlayerId = botName,
-                Score = 0,
+                Score = SpawnScore,
                 PreferredSpawnIndex = GetNextSpawnIndex(),
                 IsBot = true,
                 BotNumber = botNumber

@@ -24,6 +24,8 @@ namespace SampleClient.Gameplay
         public int LastWorldTick { get; set; }
         public int ViewCount { get; set; }
         public string LocalPlayerBuffText { get; set; }
+        public bool DebugPanelVisible { get; set; }
+        public string DebugPanelDetail { get; set; }
         public string Host { get; set; }
         public int Port { get; set; }
         public string Path { get; set; }
@@ -55,6 +57,7 @@ namespace SampleClient.Gameplay
         private Transform? _owner;
         private GameObject? _sceneUiRoot;
         private GameObject? _hudPanel;
+        private GameObject? _debugPanel;
         private GameObject? _entryPanel;
         private GameObject? _matchmakingPanel;
         private GameObject? _lobbyPanel;
@@ -96,6 +99,8 @@ namespace SampleClient.Gameplay
         private TMP_Text? _hudHintText;
         private TMP_Text? _hudEventText;
         private TMP_Text? _hudCountdownText;
+        private TMP_Text? _debugTitleText;
+        private TMP_Text? _debugDetailText;
         private TMP_Text? _entryTitleText;
         private TMP_Text? _entryStatusText;
         private TMP_Text? _modeSelectDescriptionText;
@@ -156,6 +161,8 @@ namespace SampleClient.Gameplay
 
             OverlayLayer = FindSceneUiRect("SceneUI/OverlayLayer");
             _hudPanel = FindSceneUiObject("SceneUI/HUDPanel");
+            EnsureDebugPanel();
+            _debugPanel = FindSceneUiObject("SceneUI/DebugPanel");
             _entryPanel = FindSceneUiObject("SceneUI/EntryPanel");
             EnsureMatchmakingPanel();
             _matchmakingPanel = FindSceneUiObject("SceneUI/MatchmakingPanel");
@@ -174,7 +181,11 @@ namespace SampleClient.Gameplay
             _hudModeText = FindSceneUiText("SceneUI/HUDPanel/ModeText");
             _hudHintText = FindSceneUiText("SceneUI/HUDPanel/HintText");
             _hudEventText = FindSceneUiText("SceneUI/HUDPanel/EventText");
-            _hudCountdownText = FindSceneUiText("SceneUI/HUDPanel/CountdownText");
+            _hudCountdownText = FindSceneUiText("SceneUI/OverlayLayer/CountdownText")
+                ?? FindSceneUiText("SceneUI/CountdownText")
+                ?? FindSceneUiText("SceneUI/HUDPanel/CountdownText");
+            _debugTitleText = FindSceneUiText("SceneUI/DebugPanel/TitleText");
+            _debugDetailText = FindSceneUiText("SceneUI/DebugPanel/DetailText");
             EnsureHudCountdownText();
 
             _entryTitleText = FindSceneUiText("SceneUI/EntryPanel/TitleText");
@@ -360,10 +371,15 @@ namespace SampleClient.Gameplay
             var showSettlement = snapshot.FlowState == FrontendFlowState.Settlement;
             var showMatchmaking = snapshot.FlowState == FrontendFlowState.Matchmaking;
             var showHud = snapshot.HasSession && snapshot.FlowState == FrontendFlowState.InMatch;
-            var showLobby = !showSettlement && !showMatchmaking && !snapshot.HasSession;
-            var showEntry = showLobby && snapshot.EntryMenuState != EntryMenuState.MultiplayerLobby;
+            var showDebug = showHud && snapshot.DebugPanelVisible;
+            var showLobby = !showSettlement &&
+                            !showMatchmaking &&
+                            !snapshot.HasSession &&
+                            snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby;
+            var showEntry = !showSettlement && !showMatchmaking && !showHud && !showLobby;
 
             if (_hudPanel != null) _hudPanel.SetActive(showHud);
+            if (_debugPanel != null) _debugPanel.SetActive(showDebug);
             if (_entryPanel != null) _entryPanel.SetActive(showEntry);
             if (_matchmakingPanel != null) _matchmakingPanel.SetActive(showMatchmaking);
             if (_settlementPanel != null) _settlementPanel.SetActive(showSettlement);
@@ -371,15 +387,15 @@ namespace SampleClient.Gameplay
             if (_modeSelectPanel != null) _modeSelectPanel.SetActive(snapshot.EntryMenuState == EntryMenuState.ModeSelect);
             if (_multiplayerPanel != null) _multiplayerPanel.SetActive(snapshot.EntryMenuState == EntryMenuState.MultiplayerAuth);
 
-            SetText(_hudTitleText, "ULinkRPC 点阵竞技场");
-            SetText(_hudStatusText, $"状态: {snapshot.Status}");
+            SetText(_hudStatusText, $"Buff: {snapshot.LocalPlayerBuffText}");
             SetText(_hudPlayerText, $"玩家: {(snapshot.LocalPlayerId.Length > 0 ? snapshot.LocalPlayerId : snapshot.Account)}   积分: {snapshot.LocalPlayerScoreText}   胜场: {snapshot.LocalWinCount}");
-            SetText(_hudTickText, $"Tick: {snapshot.LastWorldTick}   同步人数: {snapshot.ViewCount}   Buff: {snapshot.LocalPlayerBuffText}");
-            SetText(_hudModeText, snapshot.SessionMode == SessionMode.SinglePlayer
-                ? "模式: 本地单机"
-                : $"地址: {Rpc.WebSocketRpcClientFactory.BuildUrl(snapshot.Host, snapshot.Port, snapshot.Path)}");
-            SetText(_hudHintText, "W/A/S/D 移动，Space 冲刺。位置以权威状态为准。");
-            SetText(_hudEventText, $"事件: {snapshot.CurrentEventMessage}");
+            SetText(_hudTickText, string.Empty);
+            SetText(_hudTitleText, string.Empty);
+            SetText(_hudModeText, string.Empty);
+            SetText(_hudHintText, string.Empty);
+            SetText(_hudEventText, string.Empty);
+            SetText(_debugTitleText, "Debug");
+            SetText(_debugDetailText, snapshot.DebugPanelDetail);
             if (snapshot.HasSession)
             {
                 if (snapshot.LastRoundRemainingSeconds > 0)
@@ -496,36 +512,39 @@ namespace SampleClient.Gameplay
 
         private void ApplySceneUiTheme()
         {
-            StylePanelImage(_hudPanel, UiPanelBackgroundColor);
+            StylePanelImage(_hudPanel, Color.clear);
+            StylePanelImage(_debugPanel, UiPanelBackgroundColor);
             StylePanelImage(_entryPanel, UiPanelBackgroundColor);
             StylePanelImage(_matchmakingPanel, UiPanelBackgroundColor);
             StylePanelImage(_lobbyPanel, UiPanelBackgroundColor);
             StylePanelImage(_settlementPanel, UiPanelBackgroundColor);
 
-            StyleText(_hudTitleText, UiAccentTextColor, 16f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudTitleText, UiMutedTextColor, 1f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
             StyleText(_entryTitleText, UiAccentTextColor, 22f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
 
             StyleText(_hudStatusText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
             StyleText(_hudPlayerText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
-            StyleText(_hudTickText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
-            StyleText(_hudModeText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
-            StyleText(_hudHintText, UiMutedTextColor, 12f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Truncate);
-            StyleText(_hudEventText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
-            StyleText(_hudCountdownText, UiAccentTextColor, 14f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudTickText, UiMutedTextColor, 1f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudModeText, UiMutedTextColor, 1f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudHintText, UiMutedTextColor, 1f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudEventText, UiMutedTextColor, 1f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_hudCountdownText, UiAccentTextColor, 18f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_debugTitleText, UiAccentTextColor, 16f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_debugDetailText, UiSecondaryTextColor, 12f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Overflow);
 
             StyleText(_entryStatusText, UiPrimaryTextColor, 14f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_matchmakingTitleText, UiAccentTextColor, 22f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_matchmakingDetailText, UiSecondaryTextColor, 13f, true, TextAlignmentOptions.Top, TextOverflowModes.Overflow);
             StyleText(_lobbyTitleText, UiAccentTextColor, 22f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
-            StyleText(_lobbySummaryText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
-            StyleText(_lobbyHighlightsText, UiAccentTextColor, 12f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Overflow);
-            StyleText(_lobbyQuickActionsText, UiPrimaryTextColor, 12f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Overflow);
-            StyleText(_lobbyQuickActionButton1Text, UiPrimaryTextColor, 11f, true, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
-            StyleText(_lobbyQuickActionButton2Text, UiPrimaryTextColor, 11f, true, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
-            StyleText(_lobbyQuickActionButton3Text, UiPrimaryTextColor, 11f, true, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
-            StyleText(_lobbyQuickActionButton4Text, UiPrimaryTextColor, 11f, true, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
-            StyleText(_lobbyDetailText, UiSecondaryTextColor, 13f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Overflow);
-            StyleText(_lobbyFooterText, UiMutedTextColor, 12f, false, TextAlignmentOptions.BottomLeft, TextOverflowModes.Ellipsis);
+            StyleText(_lobbySummaryText, UiSecondaryTextColor, 14f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_lobbyHighlightsText, UiAccentTextColor, 14f, true, TextAlignmentOptions.Center, TextOverflowModes.Overflow);
+            StyleText(_lobbyQuickActionsText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.TopLeft, TextOverflowModes.Ellipsis);
+            StyleText(_lobbyQuickActionButton1Text, UiPrimaryTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_lobbyQuickActionButton2Text, UiPrimaryTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_lobbyQuickActionButton3Text, UiPrimaryTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_lobbyQuickActionButton4Text, UiPrimaryTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_lobbyDetailText, UiSecondaryTextColor, 14f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Overflow);
+            StyleText(_lobbyFooterText, UiMutedTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_modeSelectDescriptionText, UiSecondaryTextColor, 13f, true, TextAlignmentOptions.Top, TextOverflowModes.Truncate);
             StyleText(_multiplayerSubtitleText, UiPrimaryTextColor, 15f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_accountLabelText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
@@ -578,6 +597,7 @@ namespace SampleClient.Gameplay
             if (panel.TryGetComponent<Image>(out var image))
             {
                 image.color = color;
+                image.raycastTarget = color.a > 0f;
             }
         }
 
@@ -690,31 +710,98 @@ namespace SampleClient.Gameplay
 
         private void EnsureHudCountdownText()
         {
-            if (_hudCountdownText != null || _hudPanel == null)
+            var parent = OverlayLayer != null ? OverlayLayer.transform : _sceneUiRoot?.transform;
+            if (parent == null)
             {
                 return;
             }
 
+            if (_hudCountdownText != null)
+            {
+                _hudCountdownText.transform.SetParent(parent, false);
+                var existingRect = _hudCountdownText.rectTransform;
+                existingRect.anchorMin = new Vector2(0.5f, 1f);
+                existingRect.anchorMax = new Vector2(0.5f, 1f);
+                existingRect.pivot = new Vector2(0.5f, 1f);
+                existingRect.anchoredPosition = new Vector2(0f, -10f);
+                existingRect.sizeDelta = new Vector2(220f, 28f);
+                _hudCountdownText.alignment = TextAlignmentOptions.Center;
+                _hudCountdownText.fontSize = 18f;
+                _hudCountdownText.fontStyle = FontStyles.Bold;
+                _hudCountdownText.color = UiAccentTextColor;
+                _hudCountdownText.overflowMode = TextOverflowModes.Ellipsis;
+                _hudCountdownText.enableWordWrapping = false;
+                _hudCountdownText.richText = false;
+                return;
+            }
+
             var countdownObject = new GameObject("CountdownText", typeof(RectTransform), typeof(TextMeshProUGUI));
-            countdownObject.transform.SetParent(_hudPanel.transform, false);
+            countdownObject.transform.SetParent(parent, false);
 
             var rect = (RectTransform)countdownObject.transform;
-            rect.anchorMin = new Vector2(1f, 1f);
-            rect.anchorMax = new Vector2(1f, 1f);
-            rect.pivot = new Vector2(1f, 1f);
-            rect.anchoredPosition = new Vector2(-12f, -12f);
-            rect.sizeDelta = new Vector2(160f, 24f);
+            rect.anchorMin = new Vector2(0.5f, 1f);
+            rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, -10f);
+            rect.sizeDelta = new Vector2(220f, 28f);
 
             var text = countdownObject.GetComponent<TextMeshProUGUI>();
             text.font = _tmpFontAsset ??= LoadTmpFontAsset();
             text.fontSize = 14f;
             text.fontStyle = FontStyles.Bold;
-            text.alignment = TextAlignmentOptions.TopRight;
+            text.alignment = TextAlignmentOptions.Center;
             text.enableWordWrapping = false;
             text.overflowMode = TextOverflowModes.Ellipsis;
             text.color = UiAccentTextColor;
             text.richText = false;
             _hudCountdownText = text;
+        }
+
+        private void EnsureDebugPanel()
+        {
+            if (_sceneUiRoot == null)
+            {
+                return;
+            }
+
+            _debugPanel = FindSceneUiObject("SceneUI/DebugPanel");
+            if (_debugPanel != null)
+            {
+                EnsureDebugPanelContents();
+                return;
+            }
+
+            _debugPanel = new GameObject("DebugPanel", typeof(RectTransform), typeof(Image));
+            _debugPanel.transform.SetParent(_sceneUiRoot.transform, false);
+            var panelRect = (RectTransform)_debugPanel.transform;
+            panelRect.anchorMin = new Vector2(1f, 1f);
+            panelRect.anchorMax = new Vector2(1f, 1f);
+            panelRect.pivot = new Vector2(1f, 1f);
+            panelRect.anchoredPosition = new Vector2(-16f, -68f);
+            panelRect.sizeDelta = new Vector2(300f, 170f);
+            EnsureDebugPanelContents();
+            _debugPanel.SetActive(false);
+        }
+
+        private void EnsureDebugPanelContents()
+        {
+            if (_debugPanel == null)
+            {
+                return;
+            }
+
+            var panelRect = (RectTransform)_debugPanel.transform;
+            panelRect.sizeDelta = new Vector2(300f, 170f);
+
+            if (FindSceneUiText("SceneUI/DebugPanel/TitleText") == null)
+            {
+                CreateSettlementText(_debugPanel.transform, "TitleText", new Vector2(-110f, -14f), new Vector2(220f, 26f), 16f, FontStyles.Bold);
+            }
+
+            if (FindSceneUiText("SceneUI/DebugPanel/DetailText") == null)
+            {
+                CreateSettlementText(_debugPanel.transform, "DetailText", new Vector2(0f, -34f), new Vector2(260f, 120f), 12f, FontStyles.Normal);
+            }
         }
 
         private void EnsureMultiplayerLabelLayout()
@@ -817,13 +904,9 @@ namespace SampleClient.Gameplay
 
         private static string GetLobbyQuickActionsText(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
         {
-            var actionLine = string.Empty;
-            AppendLobbyQuickAction(ref actionLine, GetLobbyPrimaryActionLabel(snapshot, tab));
-            AppendLobbyQuickAction(ref actionLine, GetLobbySecondaryActionLabel(snapshot, tab));
-            AppendLobbyQuickAction(ref actionLine, GetLobbyQuickActionHint(snapshot, tab, 0));
-            AppendLobbyQuickAction(ref actionLine, GetLobbyQuickActionHint(snapshot, tab, 1));
-
-            return actionLine.Length > 0 ? $"Quick Actions\n{actionLine}" : string.Empty;
+            return tab == MetaTab.Lobby
+                ? "Quick Access"
+                : "Sections";
         }
 
         private void BindQuickActionButton(Button? button, int index)
@@ -1001,38 +1084,110 @@ namespace SampleClient.Gameplay
             _lobbyPanel = FindSceneUiObject("SceneUI/LobbyPanel");
             if (_lobbyPanel != null)
             {
+                EnsureLobbyPanelContents();
                 return;
             }
 
             _lobbyPanel = new GameObject("LobbyPanel", typeof(RectTransform), typeof(Image));
             _lobbyPanel.transform.SetParent(_sceneUiRoot.transform, false);
-            var panelRect = (RectTransform)_lobbyPanel.transform;
-            panelRect.anchorMin = new Vector2(1f, 1f);
-            panelRect.anchorMax = new Vector2(1f, 1f);
-            panelRect.pivot = new Vector2(1f, 1f);
-            panelRect.anchoredPosition = new Vector2(-20f, -20f);
-            panelRect.sizeDelta = new Vector2(430f, 500f);
-
-            CreateLobbyText(_lobbyPanel.transform, "TitleText", new Vector2(0f, -16f), new Vector2(360f, 32f), 22f, FontStyles.Bold, TextAlignmentOptions.Center);
-            CreateLobbyText(_lobbyPanel.transform, "SummaryText", new Vector2(-18f, -58f), new Vector2(380f, 38f), 13f, FontStyles.Normal, TextAlignmentOptions.TopLeft);
-            CreateLobbyText(_lobbyPanel.transform, "HighlightsText", new Vector2(-18f, -104f), new Vector2(380f, 42f), 12f, FontStyles.Bold, TextAlignmentOptions.TopLeft);
-            CreateLobbyText(_lobbyPanel.transform, "QuickActionsText", new Vector2(-18f, -150f), new Vector2(380f, 40f), 12f, FontStyles.Bold, TextAlignmentOptions.TopLeft);
-            CreateLobbyButton(_lobbyPanel.transform, "QuickActionButton1", new Vector2(-100f, -194f), new Vector2(132f, 34f), "Action");
-            CreateLobbyButton(_lobbyPanel.transform, "QuickActionButton2", new Vector2(100f, -194f), new Vector2(132f, 34f), "Action");
-            CreateLobbyButton(_lobbyPanel.transform, "QuickActionButton3", new Vector2(-100f, -236f), new Vector2(132f, 34f), "Action");
-            CreateLobbyButton(_lobbyPanel.transform, "QuickActionButton4", new Vector2(100f, -236f), new Vector2(132f, 34f), "Action");
-            CreateLobbyText(_lobbyPanel.transform, "DetailText", new Vector2(-18f, -286f), new Vector2(380f, 110f), 13f, FontStyles.Normal, TextAlignmentOptions.TopLeft);
-            CreateLobbyText(_lobbyPanel.transform, "FooterText", new Vector2(-18f, -442f), new Vector2(380f, 24f), 12f, FontStyles.Normal, TextAlignmentOptions.BottomLeft);
-
-            CreateLobbyButton(_lobbyPanel.transform, "ProfileButton", new Vector2(-285f, -102f), new Vector2(82f, 28f), "Profile");
-            CreateLobbyButton(_lobbyPanel.transform, "TasksButton", new Vector2(-195f, -102f), new Vector2(82f, 28f), "Tasks");
-            CreateLobbyButton(_lobbyPanel.transform, "ShopButton", new Vector2(-105f, -102f), new Vector2(82f, 28f), "Shop");
-            CreateLobbyButton(_lobbyPanel.transform, "RecordsButton", new Vector2(-15f, -102f), new Vector2(82f, 28f), "Records");
-            CreateLobbyButton(_lobbyPanel.transform, "LeaderboardButton", new Vector2(75f, -102f), new Vector2(100f, 28f), "Board");
-            CreateLobbyButton(_lobbyPanel.transform, "SettingsButton", new Vector2(183f, -102f), new Vector2(90f, 28f), "Settings");
-            CreateLobbyButton(_lobbyPanel.transform, "PrimaryActionButton", new Vector2(-95f, -396f), new Vector2(150f, 30f), "Action");
-            CreateLobbyButton(_lobbyPanel.transform, "SecondaryActionButton", new Vector2(95f, -396f), new Vector2(150f, 30f), "Action");
+            EnsureLobbyPanelContents();
             _lobbyPanel.SetActive(false);
+        }
+
+        private void EnsureLobbyPanelContents()
+        {
+            if (_lobbyPanel == null)
+            {
+                return;
+            }
+
+            var panelRect = (RectTransform)_lobbyPanel.transform;
+            panelRect.anchorMin = Vector2.zero;
+            panelRect.anchorMax = Vector2.one;
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.offsetMin = new Vector2(36f, 36f);
+            panelRect.offsetMax = new Vector2(-36f, -36f);
+
+            EnsureLobbyTextElement("TitleText", new Vector2(0f, -22f), new Vector2(720f, 38f), 24f, FontStyles.Bold, TextAlignmentOptions.Center);
+            EnsureLobbyTextElement("SummaryText", new Vector2(0f, -72f), new Vector2(980f, 30f), 14f, FontStyles.Normal, TextAlignmentOptions.Center);
+            EnsureLobbyButtonElement("ProfileButton", new Vector2(-300f, -128f), new Vector2(120f, 34f), "Profile");
+            EnsureLobbyButtonElement("TasksButton", new Vector2(-180f, -128f), new Vector2(110f, 34f), "Tasks");
+            EnsureLobbyButtonElement("ShopButton", new Vector2(-60f, -128f), new Vector2(110f, 34f), "Shop");
+            EnsureLobbyButtonElement("RecordsButton", new Vector2(60f, -128f), new Vector2(110f, 34f), "Records");
+            EnsureLobbyButtonElement("LeaderboardButton", new Vector2(190f, -128f), new Vector2(130f, 34f), "Board");
+            EnsureLobbyButtonElement("SettingsButton", new Vector2(330f, -128f), new Vector2(130f, 34f), "Settings");
+            EnsureLobbyTextElement("HighlightsText", new Vector2(0f, -184f), new Vector2(980f, 56f), 14f, FontStyles.Bold, TextAlignmentOptions.Center);
+            EnsureLobbyTextElement("QuickActionsText", new Vector2(-410f, -250f), new Vector2(220f, 28f), 13f, FontStyles.Bold, TextAlignmentOptions.TopLeft);
+            EnsureLobbyButtonElement("QuickActionButton1", new Vector2(-220f, -246f), new Vector2(180f, 40f), "Action");
+            EnsureLobbyButtonElement("QuickActionButton2", new Vector2(-20f, -246f), new Vector2(180f, 40f), "Action");
+            EnsureLobbyButtonElement("QuickActionButton3", new Vector2(180f, -246f), new Vector2(180f, 40f), "Action");
+            EnsureLobbyButtonElement("QuickActionButton4", new Vector2(380f, -246f), new Vector2(180f, 40f), "Action");
+            EnsureLobbyTextElement("DetailText", new Vector2(0f, -326f), new Vector2(980f, 290f), 14f, FontStyles.Normal, TextAlignmentOptions.TopLeft);
+            EnsureLobbyButtonElement("PrimaryActionButton", new Vector2(-120f, -650f), new Vector2(220f, 42f), "Action");
+            EnsureLobbyButtonElement("SecondaryActionButton", new Vector2(120f, -650f), new Vector2(220f, 42f), "Action");
+            EnsureLobbyTextElement("FooterText", new Vector2(0f, -708f), new Vector2(980f, 24f), 12f, FontStyles.Normal, TextAlignmentOptions.Center);
+        }
+
+        private void EnsureLobbyTextElement(string name, Vector2 anchoredPosition, Vector2 size, float fontSize, FontStyles fontStyles, TextAlignmentOptions alignment)
+        {
+            if (_lobbyPanel == null)
+            {
+                return;
+            }
+
+            var text = FindSceneUiText($"SceneUI/LobbyPanel/{name}");
+            if (text == null)
+            {
+                CreateLobbyText(_lobbyPanel.transform, name, anchoredPosition, size, fontSize, fontStyles, alignment);
+                text = FindSceneUiText($"SceneUI/LobbyPanel/{name}");
+            }
+
+            if (text == null)
+            {
+                return;
+            }
+
+            var rect = text.rectTransform;
+            rect.anchorMin = new Vector2(0.5f, 1f);
+            rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
+            text.fontSize = fontSize;
+            text.fontStyle = fontStyles;
+            text.alignment = alignment;
+        }
+
+        private void EnsureLobbyButtonElement(string name, Vector2 anchoredPosition, Vector2 size, string label)
+        {
+            if (_lobbyPanel == null)
+            {
+                return;
+            }
+
+            var button = FindSceneUiButton($"SceneUI/LobbyPanel/{name}");
+            if (button == null)
+            {
+                CreateLobbyButton(_lobbyPanel.transform, name, anchoredPosition, size, label);
+                button = FindSceneUiButton($"SceneUI/LobbyPanel/{name}");
+            }
+
+            if (button == null)
+            {
+                return;
+            }
+
+            var rect = button.GetComponent<RectTransform>();
+            if (rect == null)
+            {
+                return;
+            }
+
+            rect.anchorMin = new Vector2(0.5f, 1f);
+            rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
         }
 
         private void EnsureLobbyQuickActionsText()
