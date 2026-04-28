@@ -55,44 +55,25 @@ namespace SampleClient.Gameplay
             _scoreText.text = DotArenaPresentation.FormatScore(score);
         }
 
-        public void ApplyPresentation(Color baseColor, PlayerLifeState state, bool alive, bool hasSpeedBoost, bool hasKnockbackBoost, bool hasShield)
+        public void ApplyPresentation(Color baseColor, PlayerLifeState state, bool alive, float radius)
         {
             var color = baseColor;
             if (!alive)
             {
                 color = new Color(baseColor.r * 0.35f, baseColor.g * 0.35f, baseColor.b * 0.35f, 0.55f);
             }
-            else if (state == PlayerLifeState.Dash)
+            else if (state == PlayerLifeState.Move)
             {
-                color = Color.Lerp(baseColor, Color.white, 0.3f);
-            }
-            else if (state == PlayerLifeState.Stunned)
-            {
-                color = Color.Lerp(baseColor, new Color(1f, 0.9f, 0.45f, 1f), 0.45f);
-            }
-
-            if (hasSpeedBoost)
-            {
-                color = Color.Lerp(color, SpeedPickupColor, 0.28f);
-            }
-
-            if (hasKnockbackBoost)
-            {
-                color = Color.Lerp(color, KnockbackPickupColor, 0.33f);
-            }
-
-            if (hasShield)
-            {
-                color = Color.Lerp(color, ShieldPickupColor, 0.38f);
+                color = Color.Lerp(baseColor, Color.white, 0.12f);
             }
 
             _renderer.color = color;
             _outlineRenderer.color = alive
                 ? PlayerOutlineColor
                 : new Color(PlayerOutlineColor.r, PlayerOutlineColor.g, PlayerOutlineColor.b, 0.45f);
-            var scaleBoost = hasSpeedBoost || hasKnockbackBoost || hasShield ? 1.08f : 1f;
-            Root.transform.localScale = new Vector3(PlayerVisualDiameter * scaleBoost, PlayerVisualDiameter * scaleBoost, 1f);
-            var outlineScale = hasShield ? 1.24f : 1.14f;
+            var diameter = Mathf.Max(0.4f, radius * 2f);
+            Root.transform.localScale = new Vector3(diameter, diameter, 1f);
+            var outlineScale = 1.14f;
             _outlineRenderer.transform.localScale = new Vector3(outlineScale, outlineScale, 1f);
         }
 
@@ -109,7 +90,5 @@ namespace SampleClient.Gameplay
             material.SetFloat("_WobbleAmount", wobble);
             material.SetFloat("_WobbleSpeed", speed + (Mathf.Sin(time * 1.3f) * 0.15f));
         }
-
-        private static float PlayerVisualDiameter => GameplayConfig.PlayerVisualRadius * 2f;
     }
 }

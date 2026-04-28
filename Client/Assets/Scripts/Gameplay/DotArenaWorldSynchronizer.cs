@@ -13,7 +13,7 @@ namespace SampleClient.Gameplay
     {
         private readonly Dictionary<string, DotView> _views;
         private readonly Dictionary<string, PlayerRenderState> _renderStates;
-        private readonly Dictionary<PickupType, PickupView> _pickupViews;
+        private readonly List<PickupView> _pickupViews;
         private readonly Dictionary<string, PlayerOverlayView> _playerOverlayViews;
         private readonly Func<string, DotView> _createView;
         private readonly Action<string> _ensurePlayerOverlay;
@@ -28,7 +28,7 @@ namespace SampleClient.Gameplay
         public DotArenaWorldSynchronizer(
             Dictionary<string, DotView> views,
             Dictionary<string, PlayerRenderState> renderStates,
-            Dictionary<PickupType, PickupView> pickupViews,
+            List<PickupView> pickupViews,
             Dictionary<string, PlayerOverlayView> playerOverlayViews,
             Func<string, DotView> createView,
             Action<string> ensurePlayerOverlay,
@@ -81,7 +81,6 @@ namespace SampleClient.Gameplay
             }
 
             var activeIds = new HashSet<string>(StringComparer.Ordinal);
-            var collectedPickups = new Dictionary<PickupType, string>();
             foreach (var player in worldState.Players)
             {
                 activeIds.Add(player.PlayerId);
@@ -106,11 +105,8 @@ namespace SampleClient.Gameplay
                     isNewRenderState = true;
                 }
 
-                var previousState = renderState.State;
                 var previousScore = renderState.Score;
-                var previousSpeedBuff = renderState.SpeedBoostRemainingSeconds;
-                var previousKnockbackBuff = renderState.KnockbackBoostRemainingSeconds;
-                var previousShieldBuff = renderState.ShieldRemainingSeconds;
+                var previousMass = renderState.Mass;
 
                 var currentPosition = view.GetPosition();
                 if (isNewView || isNewRenderState)
@@ -124,6 +120,9 @@ namespace SampleClient.Gameplay
                 renderState.Alive = player.Alive;
                 renderState.State = player.State;
                 renderState.Score = player.Score;
+                renderState.Mass = player.Mass;
+                renderState.Radius = player.Radius;
+                renderState.MoveSpeed = player.MoveSpeed;
                 renderState.SpeedBoostRemainingSeconds = player.SpeedBoostRemainingSeconds;
                 renderState.KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds;
                 renderState.ShieldRemainingSeconds = player.ShieldRemainingSeconds;
@@ -132,10 +131,10 @@ namespace SampleClient.Gameplay
                 if (_playerOverlayViews.TryGetValue(player.PlayerId, out var overlay))
                 {
                     overlay.NameText.text = player.PlayerId;
-                    overlay.ScoreText.text = $"score: {DotArenaPresentation.FormatScore(player.Score)}";
+                    overlay.ScoreText.text = $"mass {DotArenaPresentation.FormatMass(player.Mass)}";
                 }
 
-                if (previousState != PlayerLifeState.Stunned && player.State == PlayerLifeState.Stunned)
+                if (player.Mass > previousMass + 0.9f && player.PlayerId == localPlayerId)
                 {
                     view.TriggerCollisionJelly();
                 }
@@ -148,34 +147,13 @@ namespace SampleClient.Gameplay
                     DotArenaPresentation.ResolvePlayerColor(player.PlayerId, cosmeticId),
                     player.State,
                     player.Alive,
-                    player.SpeedBoostRemainingSeconds > 0,
-                    player.KnockbackBoostRemainingSeconds > 0,
-                    player.ShieldRemainingSeconds > 0);
+                    player.Radius);
 
                 if (player.PlayerId == localPlayerId)
                 {
-                    if (player.Score > previousScore &&
-                        !(previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0) &&
-                        !(previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0))
+                    if (player.Mass > previousMass + 0.05f || player.Score > previousScore)
                     {
-                        var scoreDelta = player.Score - previousScore;
-                        var prefix = scoreDelta >= 2 ? "Bonus score" : "Score";
-                        _pushEvent($"{prefix} +{scoreDelta}");
-                    }
-
-                    if (previousSpeedBuff <= 0 && player.SpeedBoostRemainingSeconds > 0)
-                    {
-                        _pushEvent($"Picked up {DotArenaPresentation.GetPickupDisplayName(PickupType.SpeedBoost)}: movement doubled.");
-                    }
-
-                    if (previousKnockbackBuff <= 0 && player.KnockbackBoostRemainingSeconds > 0)
-                    {
-                        _pushEvent($"Picked up {DotArenaPresentation.GetPickupDisplayName(PickupType.KnockbackBoost)}: push power increased.");
-                    }
-
-                    if (previousShieldBuff <= 0 && player.ShieldRemainingSeconds > 0)
-                    {
-                        _pushEvent($"Picked up {DotArenaPresentation.GetPickupDisplayName(PickupType.Shield)}: absorb one elimination.");
+                        _pushEvent($"Mass {DotArenaPresentation.FormatMass(player.Mass)}");
                     }
                 }
 
@@ -212,79 +190,31 @@ namespace SampleClient.Gameplay
                 _pushEventWithDuration("Ring is closing. Stay inside the arena.", 2.5f);
             }
 
-            ApplyPickupState(worldState, collectedPickups);
+            ApplyPickupState(worldState);
             Debug.Log($"[DotArena] ApplyWorldState complete tick={worldState.Tick}, views={_views.Count}, renders={_renderStates.Count}");
         }
 
-        private void ApplyPickupState(WorldState worldState, Dictionary<PickupType, string> collectedPickups)
+        private void ApplyPickupState(WorldState worldState)
         {
             var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
-            var activeTypes = new HashSet<PickupType>();
-            foreach (var pickup in worldState.Pickups)
+            while (_pickupViews.Count < worldState.Pickups.Count)
             {
-                activeTypes.Add(pickup.Type);
-                if (!_pickupViews.TryGetValue(pickup.Type, out var view))
-                {
-                    view = _createPickupView(pickup.Type);
-                    _pickupViews.Add(pickup.Type, view);
-                }
+                var index = _pickupViews.Count;
+                var pickupType = worldState.Pickups[index].Type;
+                _pickupViews.Add(_createPickupView(pickupType));
+            }
 
+            for (var i = 0; i < worldState.Pickups.Count; i++)
+            {
+                var pickup = worldState.Pickups[i];
+                var view = _pickupViews[i];
                 view.ShowAt(new Vector3(pickup.X, pickup.Y, 0f), pickupScale);
             }
 
-            foreach (var entry in _pickupViews)
+            for (var i = worldState.Pickups.Count; i < _pickupViews.Count; i++)
             {
-                if (activeTypes.Contains(entry.Key))
-                {
-                    continue;
-                }
-
-                if (entry.Value.IsAbsorbing)
-                {
-                    continue;
-                }
-
-                if (TryGetPickupAbsorbTarget(entry.Key, collectedPickups, entry.Value.Root.transform.position, out var absorbTarget))
-                {
-                    entry.Value.StartAbsorb(absorbTarget, Time.time, pickupScale);
-                    continue;
-                }
-
-                entry.Value.Root.SetActive(false);
+                _pickupViews[i].Root.SetActive(false);
             }
-        }
-
-        private bool TryGetPickupAbsorbTarget(PickupType pickupType, Dictionary<PickupType, string> collectedPickups, Vector3 pickupPosition, out Vector3 targetPosition)
-        {
-            if (collectedPickups.TryGetValue(pickupType, out var collectorId) &&
-                _views.TryGetValue(collectorId, out var collectorView))
-            {
-                var collectorPosition = collectorView.GetPosition();
-                targetPosition = new Vector3(collectorPosition.x, collectorPosition.y, 0f);
-                return true;
-            }
-
-            var bestDistance = float.MaxValue;
-            targetPosition = default;
-            foreach (var entry in _views)
-            {
-                if (!_renderStates.TryGetValue(entry.Key, out var renderState) || !renderState.Alive)
-                {
-                    continue;
-                }
-
-                var candidate = entry.Value.GetPosition();
-                var distance = (candidate - new Vector2(pickupPosition.x, pickupPosition.y)).sqrMagnitude;
-                if (distance >= bestDistance)
-                {
-                    continue;
-                }
-
-                bestDistance = distance;
-                targetPosition = new Vector3(candidate.x, candidate.y, 0f);
-            }
-
-            return bestDistance < float.MaxValue;
         }
     }
 }

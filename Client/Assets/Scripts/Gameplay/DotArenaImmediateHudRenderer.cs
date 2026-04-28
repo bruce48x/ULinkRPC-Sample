@@ -58,16 +58,16 @@ namespace SampleClient.Gameplay
             GUI.Label(new Rect(contentRect.x, contentRect.y, contentRect.width, 24f), "ULinkRPC Dot Arena", titleStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 24f, contentRect.width, 18f), $"状态: {snapshot.Status}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 44f, contentRect.width, 18f),
-                $"玩家: {(snapshot.LocalPlayerId.Length > 0 ? snapshot.LocalPlayerId : snapshot.Account)}   积分: {snapshot.LocalPlayerScoreText}   胜场: {snapshot.LocalWinCount}", bodyStyle);
+                $"玩家: {(snapshot.LocalPlayerId.Length > 0 ? snapshot.LocalPlayerId : snapshot.Account)}   分数/质量: {snapshot.LocalPlayerScoreText}   胜场: {snapshot.LocalWinCount}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 64f, contentRect.width, 18f),
-                $"服务端 Tick: {snapshot.LastWorldTick}   同步人数: {views.Count}   Buff: {snapshot.LocalPlayerBuffText}", bodyStyle);
+                $"服务端 Tick: {snapshot.LastWorldTick}   同步人数: {views.Count}   状态: {snapshot.LocalPlayerBuffText}", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 84f, contentRect.width, 18f),
                 snapshot.SessionMode == SessionMode.SinglePlayer
                     ? "模式: 本地单机"
                     : $"地址: {Rpc.WebSocketRpcClientFactory.BuildUrl(snapshot.Host, snapshot.Port, snapshot.Path)}", bodyStyle);
 
             GUI.Label(new Rect(contentRect.x, contentRect.y + 104f, contentRect.width, 18f),
-                "W/A/S/D 移动, Space 冲刺。客户端只发输入，位置以服务端广播为准。", bodyStyle);
+                "W/A/S/D 移动。吃豆成长，躲开更大的球，主动吞掉更小的球。", bodyStyle);
             GUI.Label(new Rect(contentRect.x, contentRect.y + 124f, contentRect.width, 18f),
                 $"事件: {snapshot.EventMessage}", bodyStyle);
 
@@ -129,7 +129,7 @@ namespace SampleClient.Gameplay
                 var scoreRect = new Rect(centerX - (labelWidth * 0.5f), centerY + (scoreHeight * 0.05f), labelWidth, scoreHeight);
 
                 GUI.Label(nameRect, entry.Key, nameStyle);
-                GUI.Label(scoreRect, $"score: {DotArenaPresentation.FormatScore(renderState.Score)}", scoreStyle);
+                GUI.Label(scoreRect, $"mass: {DotArenaPresentation.FormatMass(renderState.Mass)}", scoreStyle);
             }
         }
     }

@@ -11,36 +11,34 @@ namespace Shared.Gameplay
     public sealed class ArenaSimulationOptions
     {
         public ArenaConfig Arena { get; set; } = ArenaConfig.CreateDefault();
-        public float RespawnDelaySeconds { get; set; } = 5f;
+        public float RespawnDelaySeconds { get; set; } = 4f;
         public int MinPlayersToStart { get; set; } = 2;
         public int TargetParticipantCount { get; set; } = 4;
         public int RestartDelayTicks { get; set; } = 60;
         public float MaxRoundSeconds { get; set; } = 120f;
-        public int EliminationCreditWindowTicks { get; set; } = 20;
-        public float BaseSpeed { get; set; } = 6f;
-        public float SpeedBoostMultiplier { get; set; } = 2f;
-        public float SpeedBoostDurationSeconds { get; set; } = 10f;
-        public float DashSpeed { get; set; } = 12f;
-        public float DashTimeSeconds { get; set; } = 0.3f;
-        public float PushForce { get; set; } = 10f;
-        public float KnockbackBoostMultiplier { get; set; } = 3f;
-        public float KnockbackBoostDurationSeconds { get; set; } = 5f;
-        public float ShieldDurationSeconds { get; set; } = 8f;
-        public int BonusScoreAmount { get; set; } = 3;
-        public float StunTimeSeconds { get; set; } = 0.2f;
-        public float PickupRespawnMinSeconds { get; set; } = 2f;
-        public float PickupRespawnMaxSeconds { get; set; } = 5f;
-        public float ShrinkStartDelaySeconds { get; set; } = 12f;
-        public float ShrinkDurationSeconds { get; set; } = 40f;
-        public Vector2 FinalArenaHalfExtents { get; set; } = new(14f, 14f);
+        public float InitialMass { get; set; } = 24f;
+        public float RespawnMass { get; set; } = 24f;
+        public float FoodMassGain { get; set; } = 1.35f;
+        public float PlayerConsumeMassGainFactor { get; set; } = 0.88f;
+        public float BaseMoveSpeed { get; set; } = 8.8f;
+        public float MinMoveSpeed { get; set; } = 3.1f;
+        public float MoveSpeedMassFactor { get; set; } = 0.12f;
+        public float RadiusMassFactor { get; set; } = 0.18f;
+        public float EatMassRatio { get; set; } = 1.15f;
+        public int FoodTargetCount { get; set; } = 96;
         public string BotPrefix { get; set; } = "AI";
-        public float BotEdgeAvoidDistance { get; set; } = 2.25f;
-        public float BotEmergencyEdgeDistance { get; set; } = 1f;
+        public float BotThreatDistance { get; set; } = 12f;
+        public float BotFoodWeight { get; set; } = 0.85f;
+        public float BotPreyWeight { get; set; } = 1.2f;
+        public float BotThreatWeight { get; set; } = 2.2f;
+        public float ShrinkStartDelaySeconds { get; set; } = 999f;
+        public float ShrinkDurationSeconds { get; set; } = 0f;
+        public Vector2 FinalArenaHalfExtents { get; set; } = new(18f, 18f);
         public PickupType[] EnabledPickupTypes { get; set; } =
         {
+            PickupType.ScorePoint,
             PickupType.SpeedBoost,
             PickupType.KnockbackBoost,
-            PickupType.ScorePoint,
             PickupType.Shield,
             PickupType.BonusScore
         };
@@ -89,13 +87,12 @@ namespace Shared.Gameplay
 
     public sealed class ArenaSimulation
     {
-        private const int SpawnScore = 1;
         private static readonly Vector2 Zero = new(0f, 0f);
 
         private readonly List<PlayerDead> _pendingDeaths = new();
         private readonly List<ArenaScoreUpdate> _pendingScoreUpdates = new();
         private readonly Dictionary<string, ArenaPlayer> _players = new(StringComparer.Ordinal);
-        private readonly Dictionary<PickupType, ArenaPickup> _pickups = new();
+        private readonly List<ArenaFood> _foods = new();
         private readonly ArenaSimulationOptions _options;
         private readonly System.Random _random = new();
         private readonly int _respawnDelaySecondsCeiling;
@@ -112,6 +109,7 @@ namespace Shared.Gameplay
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _respawnDelaySecondsCeiling = (int)MathF.Ceiling(Math.Max(1f, _options.RespawnDelaySeconds));
             _currentArenaHalfExtents = options.Arena.ArenaHalfExtents;
+            EnsureFoodPopulation();
         }
 
         public int TickCount => _tick;
@@ -139,6 +137,7 @@ namespace Shared.Gameplay
             {
                 Position = GetSpawnPosition(spawnIndex)
             };
+            ResetPlayerBody(player, _options.InitialMass);
             _players.Add(registration.PlayerId, player);
 
             if (!registration.IsBot)
@@ -172,8 +171,9 @@ namespace Shared.Gameplay
             {
                 RemoveAllBots();
                 ClearMatchState();
-                _pickups.Clear();
+                _foods.Clear();
                 _tick = 0;
+                EnsureFoodPopulation();
                 return true;
             }
 
@@ -209,11 +209,6 @@ namespace Shared.Gameplay
             player.Input = new Vector2(
                 Math.Clamp(input.MoveX, -1f, 1f),
                 Math.Clamp(input.MoveY, -1f, 1f));
-
-            if (input.Dash)
-            {
-                player.PendingDash = true;
-            }
         }
 
         public ArenaStepResult Tick(float deltaTime)
@@ -226,10 +221,9 @@ namespace Shared.Gameplay
                 UpdateArenaBounds(deltaTime);
                 UpdateBotInputs();
                 SimulatePlayers(deltaTime);
-                UpdatePickups(deltaTime);
-                ResolvePushes();
-                ResolvePickupCollections();
-                ResolveEliminations();
+                ResolveFoodCollections();
+                ResolvePlayerConsumptions();
+                EnsureFoodPopulation();
                 ResolveMatchLifecycle();
             }
 
@@ -258,6 +252,7 @@ namespace Shared.Gameplay
 
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
             {
+                var moveSpeed = player.Alive ? GetMoveSpeed(player.Mass) : 0f;
                 state.Players.Add(new PlayerState
                 {
                     PlayerId = player.PlayerId,
@@ -269,19 +264,22 @@ namespace Shared.Gameplay
                     Alive = player.Alive,
                     RespawnRemainingSeconds = player.Alive ? 0 : (int)MathF.Ceiling(player.RespawnRemaining),
                     Score = player.Score,
-                    SpeedBoostRemainingSeconds = (int)MathF.Ceiling(player.SpeedBoostRemaining),
-                    KnockbackBoostRemainingSeconds = (int)MathF.Ceiling(player.KnockbackBoostRemaining),
-                    ShieldRemainingSeconds = (int)MathF.Ceiling(player.ShieldRemaining)
+                    SpeedBoostRemainingSeconds = 0,
+                    KnockbackBoostRemainingSeconds = 0,
+                    ShieldRemainingSeconds = 0,
+                    Mass = player.Mass,
+                    Radius = player.Radius,
+                    MoveSpeed = moveSpeed
                 });
             }
 
-            foreach (var pickup in _pickups.Values.Where(static p => p.Active).OrderBy(static p => p.Type))
+            foreach (var food in _foods)
             {
                 state.Pickups.Add(new PickupState
                 {
-                    Type = pickup.Type,
-                    X = pickup.Position.x,
-                    Y = pickup.Position.y
+                    Type = food.Type,
+                    X = food.Position.x,
+                    Y = food.Position.y
                 });
             }
 
@@ -291,7 +289,7 @@ namespace Shared.Gameplay
         public void Clear()
         {
             _players.Clear();
-            _pickups.Clear();
+            _foods.Clear();
             _pendingDeaths.Clear();
             _pendingScoreUpdates.Clear();
             _pendingMatchEnd = null;
@@ -301,6 +299,7 @@ namespace Shared.Gameplay
             _roundElapsedSeconds = 0f;
             _currentArenaHalfExtents = _options.Arena.ArenaHalfExtents;
             _nextBotNumber = 1;
+            EnsureFoodPopulation();
         }
 
         private void UpdateArenaBounds(float deltaTime)
@@ -316,41 +315,22 @@ namespace Shared.Gameplay
 
             var baseHalfExtents = _options.Arena.ArenaHalfExtents;
             var finalHalfExtents = new Vector2(
-                MathF.Min(baseHalfExtents.x, MathF.Max(2f, _options.FinalArenaHalfExtents.x)),
-                MathF.Min(baseHalfExtents.y, MathF.Max(2f, _options.FinalArenaHalfExtents.y)));
+                MathF.Min(baseHalfExtents.x, MathF.Max(6f, _options.FinalArenaHalfExtents.x)),
+                MathF.Min(baseHalfExtents.y, MathF.Max(6f, _options.FinalArenaHalfExtents.y)));
 
-            if (_roundElapsedSeconds <= _options.ShrinkStartDelaySeconds ||
-                _options.ShrinkDurationSeconds <= 0f)
+            if (_roundElapsedSeconds <= _options.ShrinkStartDelaySeconds || _options.ShrinkDurationSeconds <= 0f)
             {
                 _currentArenaHalfExtents = baseHalfExtents;
-            }
-            else
-            {
-                var progress = Math.Clamp(
-                    (_roundElapsedSeconds - _options.ShrinkStartDelaySeconds) / _options.ShrinkDurationSeconds,
-                    0f,
-                    1f);
-                _currentArenaHalfExtents = new Vector2(
-                    baseHalfExtents.x + ((finalHalfExtents.x - baseHalfExtents.x) * progress),
-                    baseHalfExtents.y + ((finalHalfExtents.y - baseHalfExtents.y) * progress));
+                return;
             }
 
-            foreach (var pickup in _pickups.Values)
-            {
-                if (!pickup.Active)
-                {
-                    continue;
-                }
-
-                if (MathF.Abs(pickup.Position.x) <= _currentArenaHalfExtents.x &&
-                    MathF.Abs(pickup.Position.y) <= _currentArenaHalfExtents.y)
-                {
-                    continue;
-                }
-
-                pickup.Active = false;
-                pickup.RespawnRemaining = 1f;
-            }
+            var progress = Math.Clamp(
+                (_roundElapsedSeconds - _options.ShrinkStartDelaySeconds) / _options.ShrinkDurationSeconds,
+                0f,
+                1f);
+            _currentArenaHalfExtents = new Vector2(
+                baseHalfExtents.x + ((finalHalfExtents.x - baseHalfExtents.x) * progress),
+                baseHalfExtents.y + ((finalHalfExtents.y - baseHalfExtents.y) * progress));
         }
 
         private void SimulatePlayers(float deltaTime)
@@ -373,210 +353,133 @@ namespace Shared.Gameplay
                     continue;
                 }
 
-                if (player.StunRemaining > 0f) player.StunRemaining = MathF.Max(0f, player.StunRemaining - deltaTime);
-                if (player.DashRemaining > 0f) player.DashRemaining = MathF.Max(0f, player.DashRemaining - deltaTime);
-                if (player.SpeedBoostRemaining > 0f) player.SpeedBoostRemaining = MathF.Max(0f, player.SpeedBoostRemaining - deltaTime);
-                if (player.KnockbackBoostRemaining > 0f) player.KnockbackBoostRemaining = MathF.Max(0f, player.KnockbackBoostRemaining - deltaTime);
-                if (player.ShieldRemaining > 0f) player.ShieldRemaining = MathF.Max(0f, player.ShieldRemaining - deltaTime);
-
                 var desired = player.Input;
                 if (LengthSquared(desired) > 1f)
                 {
                     desired = Normalize(desired);
                 }
 
-                if (player.PendingDash && LengthSquared(desired) > 0f && player.DashRemaining <= 0f && player.StunRemaining <= 0f)
-                {
-                    player.DashRemaining = _options.DashTimeSeconds;
-                    player.PendingDash = false;
-                    player.DashDirection = desired;
-                }
-                else
-                {
-                    player.PendingDash = false;
-                }
-
-                if (player.StunRemaining > 0f)
-                {
-                    player.Velocity *= 0.85f;
-                }
-                else if (player.DashRemaining > 0f)
-                {
-                    player.Velocity = player.DashDirection * _options.DashSpeed;
-                }
-                else if (LengthSquared(desired) > 0f)
-                {
-                    player.Velocity = desired * GetMoveSpeed(player);
-                }
-                else
-                {
-                    player.Velocity = Zero;
-                }
-
+                player.Velocity = desired * GetMoveSpeed(player.Mass);
                 player.Position += player.Velocity * deltaTime;
+                ClampPlayerInsideArena(player);
             }
         }
 
-        private void UpdatePickups(float deltaTime)
+        private void ResolveFoodCollections()
         {
-            foreach (var pickupType in _options.EnabledPickupTypes)
+            for (var foodIndex = 0; foodIndex < _foods.Count; foodIndex++)
             {
-                if (!_pickups.TryGetValue(pickupType, out var pickup))
+                ArenaPlayer? bestCollector = null;
+                var bestDistanceSquared = float.MaxValue;
+                var food = _foods[foodIndex];
+
+                foreach (var player in _players.Values)
                 {
-                    pickup = new ArenaPickup(pickupType) { RespawnRemaining = NextPickupRespawnDelaySeconds() };
-                    _pickups.Add(pickupType, pickup);
+                    if (!player.Alive)
+                    {
+                        continue;
+                    }
+
+                    var collectionRadius = player.Radius + _options.Arena.PickupCollisionRadius;
+                    var distanceSquared = LengthSquared(player.Position - food.Position);
+                    if (distanceSquared > collectionRadius * collectionRadius || distanceSquared >= bestDistanceSquared)
+                    {
+                        continue;
+                    }
+
+                    bestCollector = player;
+                    bestDistanceSquared = distanceSquared;
                 }
 
-                if (pickup.Active)
+                if (bestCollector == null)
                 {
                     continue;
                 }
 
-                pickup.RespawnRemaining = MathF.Max(0f, pickup.RespawnRemaining - deltaTime);
-                if (pickup.RespawnRemaining > 0f)
+                ConsumeFood(bestCollector, food);
+                _foods[foodIndex] = new ArenaFood
                 {
-                    continue;
-                }
-
-                pickup.Position = GetRandomPickupPosition();
-                pickup.Active = true;
-                pickup.RespawnRemaining = 0f;
+                    Type = food.Type,
+                    Position = GetRandomPickupPosition()
+                };
             }
         }
 
-        private void ResolvePushes()
+        private void ResolvePlayerConsumptions()
         {
-            var alivePlayers = _players.Values.Where(static p => p.Alive).ToArray();
+            var alivePlayers = _players.Values.Where(static player => player.Alive).ToArray();
+            var eatenPlayerIds = new HashSet<string>(StringComparer.Ordinal);
+
             for (var i = 0; i < alivePlayers.Length; i++)
             {
                 for (var j = i + 1; j < alivePlayers.Length; j++)
                 {
                     var a = alivePlayers[i];
                     var b = alivePlayers[j];
-                    var offset = b.Position - a.Position;
-                    var distance = MathF.Sqrt(LengthSquared(offset));
-                    var minDistance = _options.Arena.PlayerCollisionRadius * 2f;
-                    if (distance <= 0.0001f || distance >= minDistance)
+                    if (!a.Alive || !b.Alive || eatenPlayerIds.Contains(a.PlayerId) || eatenPlayerIds.Contains(b.PlayerId))
                     {
                         continue;
                     }
 
-                    var direction = offset / distance;
-                    var overlap = minDistance - distance;
-                    var separation = direction * (overlap * 0.5f);
-                    a.Position -= separation;
-                    b.Position += separation;
-
-                    var pushFromA = direction * (_options.PushForce * GetPushScale(a));
-                    var pushFromB = direction * (_options.PushForce * GetPushScale(b));
-                    a.Velocity -= pushFromB;
-                    b.Velocity += pushFromA;
-                    a.StunRemaining = MathF.Max(a.StunRemaining, _options.StunTimeSeconds);
-                    b.StunRemaining = MathF.Max(b.StunRemaining, _options.StunTimeSeconds);
-                    a.LastTouchedByPlayerId = b.PlayerId;
-                    a.LastTouchedTick = _tick;
-                    b.LastTouchedByPlayerId = a.PlayerId;
-                    b.LastTouchedTick = _tick;
-                }
-            }
-        }
-
-        private void ResolvePickupCollections()
-        {
-            if (_pickups.Count == 0)
-            {
-                return;
-            }
-
-            var collectionDistance = _options.Arena.PlayerCollisionRadius + _options.Arena.PickupCollisionRadius;
-            var collectionDistanceSquared = collectionDistance * collectionDistance;
-
-            foreach (var player in _players.Values)
-            {
-                if (!player.Alive)
-                {
-                    continue;
-                }
-
-                foreach (var pickup in _pickups.Values)
-                {
-                    if (!pickup.Active || LengthSquared(player.Position - pickup.Position) > collectionDistanceSquared)
+                    if (TryResolveConsumption(a, b, out var eater, out var victim))
                     {
-                        continue;
+                        ConsumePlayer(eater, victim);
+                        eatenPlayerIds.Add(victim.PlayerId);
                     }
-
-                    ApplyPickup(player, pickup.Type);
-                    pickup.Active = false;
-                    pickup.RespawnRemaining = NextPickupRespawnDelaySeconds();
                 }
             }
         }
 
-        private void ResolveEliminations()
+        private bool TryResolveConsumption(ArenaPlayer a, ArenaPlayer b, out ArenaPlayer eater, out ArenaPlayer victim)
         {
-            var botsToRemove = new List<string>();
+            eater = null!;
+            victim = null!;
 
-            foreach (var player in _players.Values)
+            var distance = MathF.Sqrt(LengthSquared(a.Position - b.Position));
+            if (distance > MathF.Max(a.Radius, b.Radius) + (MathF.Min(a.Radius, b.Radius) * 0.35f))
             {
-                if (!player.Alive)
-                {
-                    continue;
-                }
-
-                if (MathF.Abs(player.Position.x) <= _currentArenaHalfExtents.x &&
-                    MathF.Abs(player.Position.y) <= _currentArenaHalfExtents.y)
-                {
-                    continue;
-                }
-
-                if (player.ShieldRemaining > 0f)
-                {
-                    player.Velocity = Zero;
-                    player.Input = Zero;
-                    player.DashDirection = Zero;
-                    player.DashRemaining = 0f;
-                    player.PendingDash = false;
-                    player.Position = new Vector2(
-                        Math.Clamp(player.Position.x, -_currentArenaHalfExtents.x, _currentArenaHalfExtents.x),
-                        Math.Clamp(player.Position.y, -_currentArenaHalfExtents.y, _currentArenaHalfExtents.y));
-                    player.ShieldRemaining = 0f;
-                    player.StunRemaining = MathF.Max(player.StunRemaining, _options.StunTimeSeconds * 1.5f);
-                    continue;
-                }
-
-                player.Alive = false;
-                player.Velocity = Zero;
-                player.Input = Zero;
-                player.DashDirection = Zero;
-                player.DashRemaining = 0f;
-                player.StunRemaining = 0f;
-                player.PendingDash = false;
-                player.RespawnRemaining = Math.Max(1f, _options.RespawnDelaySeconds);
-                player.SpeedBoostRemaining = 0f;
-                player.KnockbackBoostRemaining = 0f;
-                player.ShieldRemaining = 0f;
-
-                if (TryGetScoringPlayer(player, out var scorer))
-                {
-                    AdjustScore(scorer, 1);
-                }
-
-                _pendingDeaths.Add(new PlayerDead
-                {
-                    PlayerId = player.PlayerId,
-                    Tick = _tick
-                });
-
-                if (player.IsBot && HumanPlayerCount() >= _options.TargetParticipantCount)
-                {
-                    botsToRemove.Add(player.PlayerId);
-                }
+                return false;
             }
 
-            foreach (var botPlayerId in botsToRemove)
+            if (a.Mass >= b.Mass * _options.EatMassRatio && a.Radius > b.Radius)
             {
-                RemoveBot(botPlayerId);
+                eater = a;
+                victim = b;
+                return true;
             }
+
+            if (b.Mass >= a.Mass * _options.EatMassRatio && b.Radius > a.Radius)
+            {
+                eater = b;
+                victim = a;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void ConsumeFood(ArenaPlayer player, ArenaFood food)
+        {
+            player.Mass += _options.FoodMassGain;
+            player.Radius = GetRadiusForMass(player.Mass);
+            AdjustScore(player, 1);
+        }
+
+        private void ConsumePlayer(ArenaPlayer eater, ArenaPlayer victim)
+        {
+            eater.Mass += victim.Mass * _options.PlayerConsumeMassGainFactor;
+            eater.Radius = GetRadiusForMass(eater.Mass);
+            AdjustScore(eater, Math.Max(2, (int)MathF.Round(victim.Mass / _options.FoodMassGain)));
+
+            victim.Alive = false;
+            victim.Velocity = Zero;
+            victim.Input = Zero;
+            victim.RespawnRemaining = Math.Max(1f, _options.RespawnDelaySeconds);
+            _pendingDeaths.Add(new PlayerDead
+            {
+                PlayerId = victim.PlayerId,
+                Tick = _tick
+            });
         }
 
         private void ResolveMatchLifecycle()
@@ -587,37 +490,33 @@ namespace Shared.Gameplay
                 return;
             }
 
-            if (_winnerPlayerId is not null)
+            if (_winnerPlayerId is not null || _players.Count < _options.MinPlayersToStart)
             {
                 return;
             }
 
-            var alivePlayers = _players.Values.Where(static p => p.Alive).ToArray();
-            if (_players.Count < _options.MinPlayersToStart)
+            if (_roundElapsedSeconds < _options.MaxRoundSeconds)
             {
                 return;
             }
 
-            if (alivePlayers.Length <= 1 || _roundElapsedSeconds >= _options.MaxRoundSeconds)
+            var winner = _players.Values
+                .OrderByDescending(static player => player.Mass)
+                .ThenByDescending(static player => player.Score)
+                .ThenBy(static player => player.PlayerId, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (winner is null)
             {
-                var winner = _players.Values
-                    .OrderByDescending(static player => player.Score)
-                    .ThenByDescending(static player => player.Alive)
-                    .ThenBy(static player => player.PlayerId, StringComparer.Ordinal)
-                    .FirstOrDefault();
-                if (winner is null)
-                {
-                    return;
-                }
-
-                _winnerPlayerId = winner.PlayerId;
-                _restartAtTick = _tick + _options.RestartDelayTicks;
-                _pendingMatchEnd = new MatchEnd
-                {
-                    WinnerPlayerId = _winnerPlayerId,
-                    Tick = _tick
-                };
+                return;
             }
+
+            _winnerPlayerId = winner.PlayerId;
+            _restartAtTick = _tick + _options.RestartDelayTicks;
+            _pendingMatchEnd = new MatchEnd
+            {
+                WinnerPlayerId = _winnerPlayerId,
+                Tick = _tick
+            };
         }
 
         private void ResetMatchIfNeeded()
@@ -631,24 +530,16 @@ namespace Shared.Gameplay
         private void ResetMatch()
         {
             ClearMatchState();
+            _foods.Clear();
+            EnsureFoodPopulation();
 
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
             {
                 player.Position = GetSpawnPosition(player.SpawnIndex);
-                player.Velocity = Zero;
-                player.Input = Zero;
-                player.DashDirection = Zero;
-                player.DashRemaining = 0f;
-                player.StunRemaining = 0f;
-                player.PendingDash = false;
+                player.Score = 0;
+                ResetPlayerBody(player, _options.InitialMass);
                 player.Alive = true;
                 player.RespawnRemaining = 0f;
-                player.LastTouchedByPlayerId = null;
-                player.LastTouchedTick = 0;
-                player.SpeedBoostRemaining = 0f;
-                player.KnockbackBoostRemaining = 0f;
-                player.ShieldRemaining = 0f;
-                player.Score = SpawnScore;
                 _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
                 _pendingScoreUpdates.Add(new ArenaScoreUpdate
                 {
@@ -690,30 +581,6 @@ namespace Shared.Gameplay
             return index;
         }
 
-        private bool TryGetScoringPlayer(ArenaPlayer eliminatedPlayer, out ArenaPlayer scorer)
-        {
-            scorer = null!;
-            var scoringPlayerId = eliminatedPlayer.LastTouchedByPlayerId;
-            if (string.IsNullOrWhiteSpace(scoringPlayerId))
-            {
-                return false;
-            }
-
-            if (_tick - eliminatedPlayer.LastTouchedTick > _options.EliminationCreditWindowTicks)
-            {
-                return false;
-            }
-
-            if (!_players.TryGetValue(scoringPlayerId, out var candidate) ||
-                string.Equals(candidate.PlayerId, eliminatedPlayer.PlayerId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            scorer = candidate;
-            return true;
-        }
-
         private void AdjustScore(ArenaPlayer player, int delta)
         {
             player.Score = NormalizeScore(player.Score + delta);
@@ -729,34 +596,26 @@ namespace Shared.Gameplay
         private void RespawnPlayer(ArenaPlayer player)
         {
             player.Position = GetSpawnPosition(player.SpawnIndex);
-            player.Velocity = Zero;
-            player.Input = Zero;
-            player.DashDirection = Zero;
-            player.DashRemaining = 0f;
-            player.StunRemaining = 0f;
-            player.PendingDash = false;
+            ResetPlayerBody(player, _options.RespawnMass);
             player.Alive = true;
             player.RespawnRemaining = 0f;
-            player.LastTouchedByPlayerId = null;
-            player.LastTouchedTick = 0;
-            player.SpeedBoostRemaining = 0f;
-            player.KnockbackBoostRemaining = 0f;
-            player.ShieldRemaining = 0f;
-            player.Score = SpawnScore;
-            _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
-            _pendingScoreUpdates.Add(new ArenaScoreUpdate
-            {
-                PlayerId = player.PlayerId,
-                Score = player.Score,
-                IsBot = player.IsBot
-            });
         }
 
-        private static PlayerLifeState GetLifeState(ArenaPlayer player)
+        private void ResetPlayerBody(ArenaPlayer player, float mass)
         {
-            if (!player.Alive) return PlayerLifeState.Dead;
-            if (player.StunRemaining > 0f) return PlayerLifeState.Stunned;
-            if (player.DashRemaining > 0f) return PlayerLifeState.Dash;
+            player.Mass = MathF.Max(1f, mass);
+            player.Radius = GetRadiusForMass(player.Mass);
+            player.Velocity = Zero;
+            player.Input = Zero;
+        }
+
+        private PlayerLifeState GetLifeState(ArenaPlayer player)
+        {
+            if (!player.Alive)
+            {
+                return PlayerLifeState.Dead;
+            }
+
             return LengthSquared(player.Input) > 0.001f ? PlayerLifeState.Move : PlayerLifeState.Idle;
         }
 
@@ -765,44 +624,18 @@ namespace Shared.Gameplay
             return Math.Max(0, score);
         }
 
-        private float GetMoveSpeed(ArenaPlayer player)
+        private float GetMoveSpeed(float mass)
         {
-            return _options.BaseSpeed * (player.SpeedBoostRemaining > 0f ? _options.SpeedBoostMultiplier : 1f);
+            var slowdown = 1f + (MathF.Sqrt(MathF.Max(1f, mass)) * _options.MoveSpeedMassFactor);
+            return MathF.Max(_options.MinMoveSpeed, _options.BaseMoveSpeed / slowdown);
         }
 
-        private float GetPushScale(ArenaPlayer player)
+        private float GetRadiusForMass(float mass)
         {
-            var pushScale = player.DashRemaining > 0f ? 1.75f : 1f;
-            if (player.KnockbackBoostRemaining > 0f)
-            {
-                pushScale *= _options.KnockbackBoostMultiplier;
-            }
-
-            return pushScale;
-        }
-
-        private void ApplyPickup(ArenaPlayer player, PickupType pickupType)
-        {
-            switch (pickupType)
-            {
-                case PickupType.SpeedBoost:
-                    player.SpeedBoostRemaining = _options.SpeedBoostDurationSeconds;
-                    break;
-                case PickupType.KnockbackBoost:
-                    player.KnockbackBoostRemaining = _options.KnockbackBoostDurationSeconds;
-                    break;
-                case PickupType.ScorePoint:
-                    AdjustScore(player, 1);
-                    break;
-                case PickupType.Shield:
-                    player.ShieldRemaining = _options.ShieldDurationSeconds;
-                    break;
-                case PickupType.BonusScore:
-                    AdjustScore(player, _options.BonusScoreAmount);
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(pickupType), pickupType, null);
-            }
+            var baseRadius = MathF.Max(0.4f, _options.Arena.PlayerVisualRadius);
+            var baselineMass = MathF.Max(1f, _options.InitialMass);
+            var bonusMass = MathF.Max(0f, mass - baselineMass);
+            return baseRadius + (MathF.Sqrt(bonusMass) * _options.RadiusMassFactor);
         }
 
         private static float LengthSquared(Vector2 value)
@@ -835,6 +668,18 @@ namespace Shared.Gameplay
             return points[index % points.Length];
         }
 
+        private ArenaFood CreateFood()
+        {
+            var enabledTypes = _options.EnabledPickupTypes.Length == 0
+                ? new[] { PickupType.ScorePoint }
+                : _options.EnabledPickupTypes;
+            return new ArenaFood
+            {
+                Position = GetRandomPickupPosition(),
+                Type = enabledTypes[_random.Next(enabledTypes.Length)]
+            };
+        }
+
         private Vector2 GetRandomPickupPosition()
         {
             var minX = -MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.PickupSpawnInset);
@@ -847,10 +692,17 @@ namespace Shared.Gameplay
                 (float)(_random.NextDouble() * (maxY - minY)) + minY);
         }
 
-        private float NextPickupRespawnDelaySeconds()
+        private void EnsureFoodPopulation()
         {
-            return _options.PickupRespawnMinSeconds +
-                   ((float)_random.NextDouble() * (_options.PickupRespawnMaxSeconds - _options.PickupRespawnMinSeconds));
+            while (_foods.Count < _options.FoodTargetCount)
+            {
+                _foods.Add(CreateFood());
+            }
+
+            if (_foods.Count > _options.FoodTargetCount)
+            {
+                _foods.RemoveRange(_options.FoodTargetCount, _foods.Count - _options.FoodTargetCount);
+            }
         }
 
         private void UpdateBotInputs()
@@ -861,79 +713,94 @@ namespace Shared.Gameplay
                 if (!bot.Alive)
                 {
                     bot.Input = Zero;
-                    bot.PendingDash = false;
                     continue;
                 }
 
-                var target = alivePlayers
-                    .Where(player => !string.Equals(player.PlayerId, bot.PlayerId, StringComparison.Ordinal))
-                    .OrderBy(player => LengthSquared(player.Position - bot.Position))
-                    .FirstOrDefault();
+                var fleeVector = Zero;
+                ArenaPlayer? prey = null;
+                var bestPreyDistance = float.MaxValue;
 
-                var chase = target is null ? -bot.Position : target.Position - bot.Position;
-                if (LengthSquared(chase) <= 0.0001f)
+                foreach (var candidate in alivePlayers)
                 {
-                    chase = new Vector2(MathF.Sin((_tick * 0.13f) + bot.BotNumber), MathF.Cos((_tick * 0.11f) + bot.BotNumber));
+                    if (string.Equals(candidate.PlayerId, bot.PlayerId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var offset = candidate.Position - bot.Position;
+                    var distanceSquared = LengthSquared(offset);
+                    if (candidate.Mass > bot.Mass * 1.12f && distanceSquared <= _options.BotThreatDistance * _options.BotThreatDistance)
+                    {
+                        var safeDirection = Normalize(bot.Position - candidate.Position);
+                        var pressure = 1f / MathF.Max(1f, MathF.Sqrt(distanceSquared));
+                        fleeVector += safeDirection * pressure;
+                    }
+
+                    if (bot.Mass > candidate.Mass * 1.2f && distanceSquared < bestPreyDistance)
+                    {
+                        bestPreyDistance = distanceSquared;
+                        prey = candidate;
+                    }
                 }
 
-                var edgeAvoidance = ComputeBotEdgeAvoidance(bot.Position);
-                var desired = chase + edgeAvoidance;
+                var foodTarget = FindNearestFood(bot.Position);
+                var desired = fleeVector * _options.BotThreatWeight;
+                if (prey is not null)
+                {
+                    desired += Normalize(prey.Position - bot.Position) * _options.BotPreyWeight;
+                }
+                else if (foodTarget.HasValue)
+                {
+                    desired += Normalize(foodTarget.Value - bot.Position) * _options.BotFoodWeight;
+                }
+                else
+                {
+                    desired += Normalize(-bot.Position);
+                }
+
                 if (LengthSquared(desired) <= 0.0001f)
                 {
-                    desired = chase;
+                    desired = new Vector2(
+                        MathF.Sin((_tick * 0.13f) + bot.BotNumber),
+                        MathF.Cos((_tick * 0.11f) + bot.BotNumber));
                 }
 
                 bot.Input = Normalize(desired);
-                var shouldDash = target is not null &&
-                                 LengthSquared(edgeAvoidance) < 0.25f &&
-                                 LengthSquared(target.Position - bot.Position) > 9f &&
-                                 bot.DashRemaining <= 0f &&
-                                 bot.StunRemaining <= 0f &&
-                                 (_tick + bot.BotNumber) % 18 == 0;
-                if (shouldDash)
-                {
-                    bot.PendingDash = true;
-                }
-
                 bot.LastInputTick = _tick;
             }
         }
 
-        private Vector2 ComputeBotEdgeAvoidance(Vector2 position)
+        private Vector2? FindNearestFood(Vector2 position)
         {
-            var safeLimitX = MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.PlayerCollisionRadius);
-            var safeLimitY = MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.PlayerCollisionRadius);
-
-            var avoidance = Zero;
-            avoidance.x = ComputeAxisAvoidance(position.x, safeLimitX);
-            avoidance.y = ComputeAxisAvoidance(position.y, safeLimitY);
-
-            var marginX = safeLimitX - MathF.Abs(position.x);
-            var marginY = safeLimitY - MathF.Abs(position.y);
-            var emergencyMargin = MathF.Min(marginX, marginY);
-            if (emergencyMargin < _options.BotEmergencyEdgeDistance)
+            if (_foods.Count == 0)
             {
-                var toCenter = -position;
-                if (LengthSquared(toCenter) > 0.0001f)
-                {
-                    avoidance += Normalize(toCenter) * 2.5f;
-                }
+                return null;
             }
 
-            return avoidance;
+            var bestDistance = float.MaxValue;
+            var bestPosition = default(Vector2);
+            foreach (var food in _foods)
+            {
+                var distance = LengthSquared(food.Position - position);
+                if (distance >= bestDistance)
+                {
+                    continue;
+                }
+
+                bestDistance = distance;
+                bestPosition = food.Position;
+            }
+
+            return bestDistance < float.MaxValue ? bestPosition : null;
         }
 
-        private float ComputeAxisAvoidance(float coordinate, float safeLimit)
+        private void ClampPlayerInsideArena(ArenaPlayer player)
         {
-            var distanceToEdge = safeLimit - MathF.Abs(coordinate);
-            if (distanceToEdge >= _options.BotEdgeAvoidDistance)
-            {
-                return 0f;
-            }
-
-            var directionToCenter = coordinate > 0f ? -1f : 1f;
-            var pressure = 1f - Math.Clamp(distanceToEdge / _options.BotEdgeAvoidDistance, 0f, 1f);
-            return directionToCenter * pressure * pressure * 2f;
+            var limitX = MathF.Max(0.5f, _currentArenaHalfExtents.x - player.Radius);
+            var limitY = MathF.Max(0.5f, _currentArenaHalfExtents.y - player.Radius);
+            player.Position = new Vector2(
+                Math.Clamp(player.Position.x, -limitX, limitX),
+                Math.Clamp(player.Position.y, -limitY, limitY));
         }
 
         private void RebalanceBots()
@@ -983,7 +850,7 @@ namespace Shared.Gameplay
             UpsertPlayer(new ArenaPlayerRegistration
             {
                 PlayerId = botName,
-                Score = SpawnScore,
+                Score = 0,
                 PreferredSpawnIndex = GetNextSpawnIndex(),
                 IsBot = true,
                 BotNumber = botNumber
@@ -998,7 +865,7 @@ namespace Shared.Gameplay
             }
 
             ReleaseBot(bot);
-            _pendingDeaths.RemoveAll(deadEvent => string.Equals(deadEvent.PlayerId, playerId, StringComparison.Ordinal));
+            _pendingDeaths.RemoveAll(deadEvent => string.Equals(deadEvent.PlayerId, bot.PlayerId, StringComparison.Ordinal));
         }
 
         private void RemoveAllBots()
@@ -1027,17 +894,10 @@ namespace Shared.Gameplay
             };
         }
 
-        private sealed class ArenaPickup
+        private sealed class ArenaFood
         {
-            public ArenaPickup(PickupType type)
-            {
-                Type = type;
-            }
-
-            public PickupType Type { get; }
-            public bool Active { get; set; }
+            public PickupType Type { get; set; }
             public Vector2 Position { get; set; }
-            public float RespawnRemaining { get; set; }
         }
 
         private sealed class ArenaPlayer
@@ -1060,19 +920,12 @@ namespace Shared.Gameplay
             public Vector2 Position { get; set; }
             public Vector2 Velocity { get; set; }
             public Vector2 Input { get; set; }
-            public Vector2 DashDirection { get; set; }
-            public float DashRemaining { get; set; }
-            public float StunRemaining { get; set; }
-            public bool PendingDash { get; set; }
             public bool Alive { get; set; }
             public float RespawnRemaining { get; set; }
             public int LastInputTick { get; set; }
             public int Score { get; set; }
-            public string? LastTouchedByPlayerId { get; set; }
-            public int LastTouchedTick { get; set; }
-            public float SpeedBoostRemaining { get; set; }
-            public float KnockbackBoostRemaining { get; set; }
-            public float ShieldRemaining { get; set; }
+            public float Mass { get; set; }
+            public float Radius { get; set; }
         }
     }
 }

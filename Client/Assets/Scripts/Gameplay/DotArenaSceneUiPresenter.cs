@@ -103,7 +103,6 @@ namespace SampleClient.Gameplay
         private TMP_Text? _debugDetailText;
         private TMP_Text? _entryTitleText;
         private TMP_Text? _entryStatusText;
-        private TMP_Text? _modeSelectDescriptionText;
         private TMP_Text? _multiplayerSubtitleText;
         private TMP_Text? _accountLabelText;
         private TMP_Text? _passwordLabelText;
@@ -190,7 +189,6 @@ namespace SampleClient.Gameplay
 
             _entryTitleText = FindSceneUiText("SceneUI/EntryPanel/TitleText");
             _entryStatusText = FindSceneUiText("SceneUI/EntryPanel/StatusText");
-            _modeSelectDescriptionText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/DescriptionText");
             _matchmakingTitleText = FindSceneUiText("SceneUI/MatchmakingPanel/TitleText");
             _matchmakingDetailText = FindSceneUiText("SceneUI/MatchmakingPanel/DetailText");
             _matchmakingCancelButton = FindSceneUiButton("SceneUI/MatchmakingPanel/CancelButton");
@@ -387,8 +385,8 @@ namespace SampleClient.Gameplay
             if (_modeSelectPanel != null) _modeSelectPanel.SetActive(snapshot.EntryMenuState == EntryMenuState.ModeSelect);
             if (_multiplayerPanel != null) _multiplayerPanel.SetActive(snapshot.EntryMenuState == EntryMenuState.MultiplayerAuth);
 
-            SetText(_hudStatusText, $"Buff: {snapshot.LocalPlayerBuffText}");
-            SetText(_hudPlayerText, $"玩家: {(snapshot.LocalPlayerId.Length > 0 ? snapshot.LocalPlayerId : snapshot.Account)}   积分: {snapshot.LocalPlayerScoreText}   胜场: {snapshot.LocalWinCount}");
+            SetText(_hudStatusText, $"State: {snapshot.LocalPlayerBuffText}");
+            SetText(_hudPlayerText, $"玩家: {(snapshot.LocalPlayerId.Length > 0 ? snapshot.LocalPlayerId : snapshot.Account)}   分数/质量: {snapshot.LocalPlayerScoreText}   胜场: {snapshot.LocalWinCount}");
             SetText(_hudTickText, string.Empty);
             SetText(_hudTitleText, string.Empty);
             SetText(_hudModeText, string.Empty);
@@ -428,7 +426,6 @@ namespace SampleClient.Gameplay
             SetText(_lobbyFooterText, snapshot.MetaFooterHint);
             SetText(_lobbyPrimaryActionButtonText, GetLobbyPrimaryActionLabel(snapshot, _selectedLobbyTab));
             SetText(_lobbySecondaryActionButtonText, GetLobbySecondaryActionLabel(snapshot, _selectedLobbyTab));
-            SetText(_modeSelectDescriptionText, $"选择模式。单机将立即开始，并补足 4 名 AI。\n{snapshot.MenuLoginStatusText}");
             SetText(_multiplayerSubtitleText, "联机匹配");
             SetText(_accountLabelText, "账号");
             SetText(_passwordLabelText, "密码");
@@ -545,7 +542,6 @@ namespace SampleClient.Gameplay
             StyleText(_lobbyQuickActionButton4Text, UiPrimaryTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_lobbyDetailText, UiSecondaryTextColor, 14f, true, TextAlignmentOptions.TopLeft, TextOverflowModes.Overflow);
             StyleText(_lobbyFooterText, UiMutedTextColor, 12f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
-            StyleText(_modeSelectDescriptionText, UiSecondaryTextColor, 13f, true, TextAlignmentOptions.Top, TextOverflowModes.Truncate);
             StyleText(_multiplayerSubtitleText, UiPrimaryTextColor, 15f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_accountLabelText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
             StyleText(_passwordLabelText, UiSecondaryTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);

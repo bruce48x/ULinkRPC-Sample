@@ -3,7 +3,7 @@
   "isRoot": true,
   "tools": {
     "ulinkrpc.codegen": {
-      "version": "0.13.3",
+      "version": "0.16.4",
       "commands": [
         "ulinkrpc-codegen"
       ],

@@ -66,7 +66,7 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask LogoutAsync()
+    public async ValueTask LogoutAsync(LogoutRequest req)
     {
         ThrowIfDisposed();
 

@@ -101,7 +101,7 @@ namespace SampleClient.Gameplay
             {
                 if (shouldLogout)
                 {
-                    await playerService!.LogoutAsync().ConfigureAwait(false);
+                    await playerService!.LogoutAsync(new LogoutRequest()).ConfigureAwait(false);
                 }
             }
             catch

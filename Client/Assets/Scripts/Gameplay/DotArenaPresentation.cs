@@ -13,6 +13,11 @@ namespace SampleClient.Gameplay
             return score.ToString();
         }
 
+        public static string FormatMass(float mass)
+        {
+            return mass >= 100f ? mass.ToString("0") : mass.ToString("0.0");
+        }
+
         public static Color ResolvePlayerColor(string playerId, string? cosmeticId = null)
         {
             if (!string.IsNullOrWhiteSpace(cosmeticId))
@@ -41,12 +46,12 @@ namespace SampleClient.Gameplay
         {
             return pickupType switch
             {
-                PickupType.ScorePoint => "Score",
-                PickupType.SpeedBoost => "Speed",
-                PickupType.KnockbackBoost => "Impact",
-                PickupType.Shield => "Shield",
-                PickupType.BonusScore => "Bonus",
-                _ => "Pickup"
+                PickupType.ScorePoint => "Mass",
+                PickupType.SpeedBoost => "Mass",
+                PickupType.KnockbackBoost => "Mass",
+                PickupType.Shield => "Mass",
+                PickupType.BonusScore => "Mass",
+                _ => "Food"
             };
         }
 

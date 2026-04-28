@@ -7,7 +7,7 @@ using Shared.Interfaces;
 using ULinkRPC.Core;
 using ULinkRPC.Server;
 
-namespace Shared.Interfaces.Server.Generated
+namespace Server.Generated
 {
     public sealed class PlayerCallbackProxy : IPlayerCallback
     {

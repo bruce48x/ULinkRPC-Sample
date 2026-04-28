@@ -16,7 +16,7 @@ namespace Shared.Interfaces
         ValueTask SubmitInput(InputMessage req);
 
         [RpcMethod(3)]
-        ValueTask LogoutAsync();
+        ValueTask LogoutAsync(LogoutRequest req);
     }
 
     [RpcCallback(typeof(IPlayerService))]
@@ -70,6 +70,11 @@ namespace Shared.Interfaces
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class LogoutRequest
+    {
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
     public partial class WorldState
     {
         [MemoryPackOrder(0)]
@@ -116,6 +121,12 @@ namespace Shared.Interfaces
         public int KnockbackBoostRemainingSeconds { get; set; }
         [MemoryPackOrder(11)]
         public int ShieldRemainingSeconds { get; set; }
+        [MemoryPackOrder(12)]
+        public float Mass { get; set; }
+        [MemoryPackOrder(13)]
+        public float Radius { get; set; }
+        [MemoryPackOrder(14)]
+        public float MoveSpeed { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]

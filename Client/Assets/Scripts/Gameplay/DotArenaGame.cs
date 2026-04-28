@@ -45,7 +45,7 @@ namespace SampleClient.Gameplay
         private readonly DotArenaSceneUiPresenter _sceneUiPresenter = new();
         private readonly Dictionary<string, DotView> _views = new(StringComparer.Ordinal);
         private readonly Dictionary<string, PlayerRenderState> _renderStates = new(StringComparer.Ordinal);
-        private readonly Dictionary<PickupType, PickupView> _pickupViews = new();
+        private readonly List<PickupView> _pickupViews = new();
         private readonly Dictionary<string, PlayerOverlayView> _playerOverlayViews = new(StringComparer.Ordinal);
 
         private DotArenaNetworkSession? _networkSession;
@@ -780,16 +780,6 @@ namespace SampleClient.Gameplay
             {
                 _showDebugPanel = !_showDebugPanel;
             }
-
-            if (ConsumeEditorDashOverride())
-            {
-                _dashQueued = true;
-            }
-
-            if (DotArenaInputUtility.IsKeyDown(KeyCode.Space))
-            {
-                _dashQueued = true;
-            }
         }
 
         private void ApplyPendingCallbacks()
@@ -843,12 +833,13 @@ namespace SampleClient.Gameplay
 
             if (_views.TryGetValue(deadEvent.PlayerId, out var view))
             {
-                view.ApplyPresentation(DotArenaPresentation.ResolvePlayerColor(deadEvent.PlayerId), PlayerLifeState.Dead, false, false, false, false);
+                var radius = renderState?.Radius ?? GameplayConfig.PlayerVisualRadius;
+                view.ApplyPresentation(DotArenaPresentation.ResolvePlayerColor(deadEvent.PlayerId), PlayerLifeState.Dead, false, radius);
             }
 
             PushEvent(deadEvent.PlayerId == _localPlayerId
-                ? "你被淘汰了"
-                : $"{deadEvent.PlayerId} 被淘汰");
+                ? "你被吞噬了"
+                : $"{deadEvent.PlayerId} 被吞噬");
         }
 
         private void HandleMatchEnd(MatchEnd matchEnd)
@@ -926,7 +917,7 @@ namespace SampleClient.Gameplay
             UpdatePlayerOverlayViews();
 
             var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
-            foreach (var pickupView in _pickupViews.Values)
+            foreach (var pickupView in _pickupViews)
             {
                 var pulse = 1f + (Mathf.Sin(Time.time * PickupPulseFrequency) * PickupPulseAmplitude);
                 pickupView.UpdateVisual(Time.time, pickupScale * pulse, PickupAbsorbDurationSeconds);
@@ -1438,7 +1429,7 @@ namespace SampleClient.Gameplay
                 Destroy(view.Root);
             }
 
-            foreach (var pickupView in _pickupViews.Values)
+            foreach (var pickupView in _pickupViews)
             {
                 Destroy(pickupView.Root);
             }
@@ -1601,7 +1592,7 @@ namespace SampleClient.Gameplay
 
             var view = new DotView(viewRoot, renderer, outlineRenderer, nameText, scoreText);
             view.SetIdentity(playerId, 0);
-            view.ApplyPresentation(DotArenaPresentation.ResolvePlayerColor(playerId, cosmeticId), PlayerLifeState.Idle, true, false, false, false);
+            view.ApplyPresentation(DotArenaPresentation.ResolvePlayerColor(playerId, cosmeticId), PlayerLifeState.Idle, true, GameplayConfig.PlayerVisualRadius);
             return view;
         }
 
@@ -1717,7 +1708,7 @@ namespace SampleClient.Gameplay
             }
 
             return _renderStates.TryGetValue(_localPlayerId, out var renderState)
-                ? DotArenaPresentation.FormatScore(renderState.Score)
+                ? $"{DotArenaPresentation.FormatScore(renderState.Score)} / {DotArenaPresentation.FormatMass(renderState.Mass)}"
                 : "0";
         }
 
@@ -1737,26 +1728,10 @@ namespace SampleClient.Gameplay
         {
             if (_localPlayerId.Length == 0 || !_renderStates.TryGetValue(_localPlayerId, out var renderState))
             {
-                return "无";
+                return "mass 0";
             }
 
-            var parts = new List<string>(3);
-            if (renderState.SpeedBoostRemainingSeconds > 0)
-            {
-                parts.Add($"{DotArenaPresentation.GetPickupDisplayName(PickupType.SpeedBoost)} {renderState.SpeedBoostRemainingSeconds}s");
-            }
-
-            if (renderState.KnockbackBoostRemainingSeconds > 0)
-            {
-                parts.Add($"{DotArenaPresentation.GetPickupDisplayName(PickupType.KnockbackBoost)} {renderState.KnockbackBoostRemainingSeconds}s");
-            }
-
-            if (renderState.ShieldRemainingSeconds > 0)
-            {
-                parts.Add($"{DotArenaPresentation.GetPickupDisplayName(PickupType.Shield)} {renderState.ShieldRemainingSeconds}s");
-            }
-
-            return parts.Count == 0 ? "无" : string.Join(" / ", parts);
+            return $"mass {DotArenaPresentation.FormatMass(renderState.Mass)} / speed {renderState.MoveSpeed:0.0}";
         }
 
         private string GetCurrentEventMessage()
@@ -1825,6 +1800,9 @@ namespace SampleClient.Gameplay
             {
                 Arena = CreateArenaConfig(preset.MapVariant),
                 RespawnDelaySeconds = 5f,
+                FoodTargetCount = 96,
+                InitialMass = 24f,
+                RespawnMass = 24f,
                 EnabledPickupTypes = new[]
                 {
                     PickupType.SpeedBoost,
@@ -1840,32 +1818,21 @@ namespace SampleClient.Gameplay
                 case ArenaRuleVariant.ScoreRush:
                     options.MaxRoundSeconds = 85f;
                     options.RespawnDelaySeconds = 3f;
-                    options.BonusScoreAmount = 5;
-                    options.PickupRespawnMinSeconds = 1.25f;
-                    options.PickupRespawnMaxSeconds = 2.75f;
+                    options.FoodTargetCount = 132;
+                    options.FoodMassGain = 1.45f;
+                    options.BaseMoveSpeed = 9.4f;
                     options.ShrinkStartDelaySeconds = 26f;
                     options.ShrinkDurationSeconds = 28f;
-                    options.EnabledPickupTypes = new[]
-                    {
-                        PickupType.SpeedBoost,
-                        PickupType.ScorePoint,
-                        PickupType.Shield,
-                        PickupType.BonusScore
-                    };
                     break;
                 case ArenaRuleVariant.ArenaCollapse:
                     options.MaxRoundSeconds = 70f;
                     options.RespawnDelaySeconds = 8f;
-                    options.PushForce = 11.5f;
+                    options.FoodTargetCount = 88;
+                    options.BaseMoveSpeed = 8.4f;
+                    options.EatMassRatio = 1.12f;
                     options.ShrinkStartDelaySeconds = 8f;
                     options.ShrinkDurationSeconds = 20f;
                     options.FinalArenaHalfExtents = new Vector2(8f, 8f);
-                    options.EnabledPickupTypes = new[]
-                    {
-                        PickupType.SpeedBoost,
-                        PickupType.KnockbackBoost,
-                        PickupType.Shield
-                    };
                     break;
             }
 
@@ -2002,10 +1969,10 @@ namespace SampleClient.Gameplay
                 $"Flow: {_flowState} / Entry: {_entryMenuState}\n" +
                 $"Mode: {mode}\n" +
                 $"Player: {_localPlayerId}\n" +
-                $"Hint: W/A/S/D move, Space dash, P debug\n" +
+                $"Hint: W/A/S/D move, eat pellets, avoid larger cells, P debug\n" +
                 $"Tick: {_lastWorldTick}\n" +
                 $"Views: {_views.Count}\n" +
-                $"Buff: {GetLocalPlayerBuffText()}\n" +
+                $"Mass: {GetLocalPlayerBuffText()}\n" +
                 $"Event: {GetCurrentEventMessage()}\n" +
                 $"Endpoint: {endpoint}\n" +
                 $"Connected: {IsConnected} / Connecting: {IsConnecting}";

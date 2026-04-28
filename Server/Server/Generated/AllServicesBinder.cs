@@ -6,23 +6,17 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Shared.Interfaces;
-using System.Collections.Generic;
 using ULinkRPC.Server;
 
-[assembly: RpcGeneratedServicesBinder(typeof(Shared.Interfaces.Server.Generated.AllServicesBinder))]
+[assembly: RpcGeneratedServicesBinder(typeof(Server.Generated.AllServicesBinder))]
 
-namespace Shared.Interfaces.Server.Generated
+namespace Server.Generated
 {
     public static class AllServicesBinder
     {
         public static void BindAll(RpcServiceRegistry registry)
         {
             PlayerServiceBinder.Bind(registry, CreateCallbackServiceFactory<IPlayerService, IPlayerCallback>());
-        }
-
-        public static void BindAll(RpcServiceRegistry registry, Func<IPlayerCallback, IPlayerService> playerServiceFactory)
-        {
-            PlayerServiceBinder.Bind(registry, playerServiceFactory);
         }
 
         private static Func<RpcSession, TService> CreateServiceFactory<TService>()
@@ -74,7 +68,7 @@ namespace Shared.Interfaces.Server.Generated
                 throw new InvalidOperationException($"No service implementation found for '{serviceType.FullName}' in assembly '{typeof(AllServicesBinder).Assembly.GetName().Name}'.");
             }
             var names = string.Join(", ", implementations.Select(static type => type.FullName));
-            throw new InvalidOperationException($"Multiple service implementations found for '{serviceType.FullName}': {names}. Use the BindAll overload that accepts explicit service instances or factories instead.");
+            throw new InvalidOperationException($"Multiple service implementations found for '{serviceType.FullName}': {names}. Use the individual generated binders when you need explicit service instances or factories instead.");
         }
     }
 }
