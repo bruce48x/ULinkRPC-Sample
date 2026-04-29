@@ -140,7 +140,7 @@ namespace SampleClient.Gameplay
             }
 
             var modeLine = isInMultiplayerLobby
-                ? $"Lobby: Multiplayer lobby ready as {metaState.PlayerId}\nEndpoint: {endpoint}\nAction: Start Match to enter online queue"
+                ? $"Lobby: Multiplayer lobby ready as {metaState.PlayerId}\nEndpoint: {endpoint}\nAction: Click the bottom '开始匹配' button to enter queue"
                 : $"Next local preset: {DotArenaSinglePlayerCatalog.GetPresetLabel(previewPreset.MapVariant, previewPreset.RuleVariant)}";
 
             var lastReward = lastRewardSummary == null
@@ -277,7 +277,7 @@ namespace SampleClient.Gameplay
         public static string BuildMetaFooterHint(bool isInMultiplayerLobby)
         {
             return isInMultiplayerLobby
-                ? "Start Match enters queue. Log Out returns to mode select."
+                ? "底部左侧按钮“开始匹配”进入队列，右侧按钮“退出登录”返回模式选择。"
                 : "Use the top tabs to switch sections. Start from Lobby or Tasks.";
         }
 

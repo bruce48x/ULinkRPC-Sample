@@ -11,6 +11,8 @@ namespace SampleClient.Gameplay
         private WorldState? _pendingWorldState;
         private readonly Queue<PlayerDead> _pendingDeaths = new();
         private MatchEnd? _pendingMatchEnd;
+        private MatchmakingStatusUpdate? _pendingMatchmakingStatus;
+        private string? _pendingDisconnectMessage;
 
         public void EnqueueWorldState(WorldState worldState)
         {
@@ -44,11 +46,29 @@ namespace SampleClient.Gameplay
             }
         }
 
+        public void EnqueueMatchmakingStatus(MatchmakingStatusUpdate matchmakingStatus)
+        {
+            lock (_gate)
+            {
+                _pendingMatchmakingStatus = CloneMatchmakingStatus(matchmakingStatus);
+            }
+        }
+
+        public void EnqueueDisconnected(string? disconnectMessage)
+        {
+            lock (_gate)
+            {
+                _pendingDisconnectMessage = disconnectMessage;
+            }
+        }
+
         public DrainedCallbacks Drain()
         {
             var deadEvents = new List<PlayerDead>();
             WorldState? worldState;
             MatchEnd? matchEnd;
+            MatchmakingStatusUpdate? matchmakingStatus;
+            string? disconnectMessage;
 
             lock (_gate)
             {
@@ -62,9 +82,15 @@ namespace SampleClient.Gameplay
 
                 matchEnd = _pendingMatchEnd;
                 _pendingMatchEnd = null;
+
+                matchmakingStatus = _pendingMatchmakingStatus;
+                _pendingMatchmakingStatus = null;
+
+                disconnectMessage = _pendingDisconnectMessage;
+                _pendingDisconnectMessage = null;
             }
 
-            return new DrainedCallbacks(worldState, deadEvents, matchEnd);
+            return new DrainedCallbacks(worldState, deadEvents, matchEnd, matchmakingStatus, disconnectMessage);
         }
 
         public void Clear()
@@ -74,6 +100,8 @@ namespace SampleClient.Gameplay
                 _pendingWorldState = null;
                 _pendingDeaths.Clear();
                 _pendingMatchEnd = null;
+                _pendingMatchmakingStatus = null;
+                _pendingDisconnectMessage = null;
             }
         }
 
@@ -118,19 +146,37 @@ namespace SampleClient.Gameplay
 
             return clone;
         }
+
+        private static MatchmakingStatusUpdate CloneMatchmakingStatus(MatchmakingStatusUpdate source)
+        {
+            return new MatchmakingStatusUpdate
+            {
+                State = source.State,
+                Message = source.Message,
+                RoomId = source.RoomId,
+                QueuePosition = source.QueuePosition,
+                QueueSize = source.QueueSize,
+                RoomCapacity = source.RoomCapacity,
+                MatchedPlayerCount = source.MatchedPlayerCount
+            };
+        }
     }
 
     internal readonly struct DrainedCallbacks
     {
-        public DrainedCallbacks(WorldState? worldState, List<PlayerDead> deaths, MatchEnd? matchEnd)
+        public DrainedCallbacks(WorldState? worldState, List<PlayerDead> deaths, MatchEnd? matchEnd, MatchmakingStatusUpdate? matchmakingStatus, string? disconnectedMessage)
         {
             WorldState = worldState;
             Deaths = deaths;
             MatchEnd = matchEnd;
+            MatchmakingStatus = matchmakingStatus;
+            DisconnectedMessage = disconnectedMessage;
         }
 
         public WorldState? WorldState { get; }
         public List<PlayerDead> Deaths { get; }
         public MatchEnd? MatchEnd { get; }
+        public MatchmakingStatusUpdate? MatchmakingStatus { get; }
+        public string? DisconnectedMessage { get; }
     }
 }

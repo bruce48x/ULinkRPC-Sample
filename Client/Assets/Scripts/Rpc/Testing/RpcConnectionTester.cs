@@ -108,6 +108,11 @@ namespace Rpc.Testing
 
                 _playerId = reply.PlayerId;
                 Debug.Log($"[WS] Login ok: account={Account}, playerId={reply.PlayerId}, code={reply.Code}, token={reply.Token}");
+                await _player.StartMatchmakingAsync(new MatchmakingRequest
+                {
+                    PlayerId = reply.PlayerId,
+                    Token = reply.Token
+                });
                 _pollingTask = RunPollingAsync();
             }
             catch (Exception ex)
@@ -230,6 +235,11 @@ namespace Rpc.Testing
             public override void OnMatchEnd(MatchEnd matchEnd)
             {
                 Debug.Log($"[WS] Match end: winner={matchEnd.WinnerPlayerId}, tick={matchEnd.Tick}");
+            }
+
+            public override void OnMatchmakingStatus(MatchmakingStatusUpdate matchmakingStatus)
+            {
+                Debug.Log($"[WS] Matchmaking state={matchmakingStatus.State}, room={matchmakingStatus.RoomId}, queue={matchmakingStatus.QueuePosition}/{matchmakingStatus.QueueSize}, matched={matchmakingStatus.MatchedPlayerCount}/{matchmakingStatus.RoomCapacity}, message={matchmakingStatus.Message}");
             }
         }
 

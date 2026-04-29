@@ -63,6 +63,7 @@ namespace SampleClient.Gameplay
         private MatchSettlementSummary? _settlementSummary;
         private DotArenaMetaState? _metaState;
         private DotArenaRewardSummary? _lastRewardSummary;
+        private PendingUiRequest _pendingUiRequest;
         private MetaTab _selectedMetaTab;
         private SpriteRenderer? _safeZoneRenderer;
         private SpriteRenderer? _topBorderRenderer;
@@ -83,6 +84,8 @@ namespace SampleClient.Gameplay
         private DotArenaNetworkSession NetworkSession => _networkSession ??= new DotArenaNetworkSession(OnDisconnected);
         private bool IsConnected => NetworkSession.IsConnected;
         private bool IsConnecting => NetworkSession.IsConnecting;
+        private bool HasPendingUiRequest => _pendingUiRequest != PendingUiRequest.None;
+        private bool IsUiBusy => IsConnecting || HasPendingUiRequest;
 
         private DotArenaWorldSynchronizer WorldSynchronizer => _worldSynchronizer ??= new DotArenaWorldSynchronizer(
             _views,

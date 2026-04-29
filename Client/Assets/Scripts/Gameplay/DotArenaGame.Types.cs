@@ -110,4 +110,12 @@ namespace SampleClient.Gameplay
         Leaderboard = 4,
         Settings = 5
     }
+
+    internal enum PendingUiRequest
+    {
+        None = 0,
+        Login = 1,
+        CancelMatchmaking = 2,
+        ExitLobby = 3
+    }
 }

@@ -33,6 +33,7 @@ namespace SampleClient.Gameplay
         public int LastRoundRemainingSeconds { get; set; }
         public string MenuLoginStatusText { get; set; }
         public bool IsConnecting { get; set; }
+        public bool IsBusy { get; set; }
         public string SettlementTitle { get; set; }
         public string SettlementDetail { get; set; }
         public string SettlementRewardSummary { get; set; }

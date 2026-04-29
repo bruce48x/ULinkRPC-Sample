@@ -14,6 +14,8 @@ namespace Rpc.Generated
     {
         private const int ServiceId = 1;
         private static readonly RpcMethod<LoginRequest, LoginReply> loginAsyncRpcMethod = new(ServiceId, 1);
+        private static readonly RpcMethod<MatchmakingRequest, RpcVoid> startMatchmakingAsyncRpcMethod = new(ServiceId, 4);
+        private static readonly RpcMethod<CancelMatchmakingRequest, RpcVoid> cancelMatchmakingAsyncRpcMethod = new(ServiceId, 5);
         private static readonly RpcMethod<InputMessage, RpcVoid> submitInputRpcMethod = new(ServiceId, 2);
         private static readonly RpcMethod<LogoutRequest, RpcVoid> logoutAsyncRpcMethod = new(ServiceId, 3);
 
@@ -29,6 +31,26 @@ namespace Rpc.Generated
         public ValueTask<LoginReply> LoginAsync(LoginRequest req, CancellationToken ct)
         {
             return _client.CallAsync(loginAsyncRpcMethod, req, ct);
+        }
+
+        public async ValueTask StartMatchmakingAsync(MatchmakingRequest req)
+        {
+            await StartMatchmakingAsync(req, CancellationToken.None);
+        }
+
+        public async ValueTask StartMatchmakingAsync(MatchmakingRequest req, CancellationToken ct)
+        {
+            await _client.CallAsync(startMatchmakingAsyncRpcMethod, req, ct);
+        }
+
+        public async ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req)
+        {
+            await CancelMatchmakingAsync(req, CancellationToken.None);
+        }
+
+        public async ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req, CancellationToken ct)
+        {
+            await _client.CallAsync(cancelMatchmakingAsyncRpcMethod, req, ct);
         }
 
         public async ValueTask SubmitInput(InputMessage req)

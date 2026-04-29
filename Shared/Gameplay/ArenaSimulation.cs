@@ -14,6 +14,7 @@ namespace Shared.Gameplay
         public float RespawnDelaySeconds { get; set; } = 4f;
         public int MinPlayersToStart { get; set; } = 2;
         public int TargetParticipantCount { get; set; } = 4;
+        public bool EnableBots { get; set; } = true;
         public int RestartDelayTicks { get; set; } = 60;
         public float MaxRoundSeconds { get; set; } = 120f;
         public float InitialMass { get; set; } = 24f;
@@ -806,7 +807,9 @@ namespace Shared.Gameplay
         private void RebalanceBots()
         {
             var humanCount = HumanPlayerCount();
-            var desiredBotCount = Math.Max(0, _options.TargetParticipantCount - humanCount);
+            var desiredBotCount = _options.EnableBots
+                ? Math.Max(0, _options.TargetParticipantCount - humanCount)
+                : 0;
             var currentBotCount = _players.Values.Count(static player => player.IsBot);
 
             while (currentBotCount < desiredBotCount)

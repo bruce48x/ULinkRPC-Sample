@@ -6,7 +6,7 @@ namespace SampleClient.Gameplay
     {
         public void OnUiSinglePlayerSelected()
         {
-            if (IsConnecting)
+            if (IsUiBusy)
             {
                 return;
             }
@@ -16,7 +16,7 @@ namespace SampleClient.Gameplay
 
         public void OnUiMultiplayerSelected()
         {
-            if (IsConnecting)
+            if (IsUiBusy)
             {
                 return;
             }
@@ -29,7 +29,7 @@ namespace SampleClient.Gameplay
 
         public void OnUiBackToModeSelect()
         {
-            if (IsConnecting)
+            if (IsUiBusy)
             {
                 return;
             }
@@ -42,27 +42,37 @@ namespace SampleClient.Gameplay
 
         public void OnUiCancelMatchmakingRequested()
         {
-            if (_flowState != FrontendFlowState.Matchmaking)
+            if (_flowState != FrontendFlowState.Matchmaking || HasPendingUiRequest)
             {
                 return;
             }
 
+            _pendingUiRequest = PendingUiRequest.CancelMatchmaking;
+            _status = "正在取消匹配";
+            _eventMessage = "正在返回联机大厅";
+            RefreshSceneUi();
             _ = CancelMatchmakingAsync();
         }
 
         public void OnUiConnectRequested()
         {
-            if (IsConnecting)
+            if (IsUiBusy)
             {
                 return;
             }
 
-            _ = ConnectAsync(enterMultiplayerLobbyAfterLogin: true);
+            _pendingUiRequest = PendingUiRequest.Login;
+            _flowState = FrontendFlowState.Entry;
+            _entryMenuState = EntryMenuState.MultiplayerAuth;
+            _status = $"正在连接 {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}";
+            _eventMessage = "正在登录联机账号";
+            RefreshSceneUi();
+            _ = ConnectAsync();
         }
 
         public void OnUiRematchRequested()
         {
-            if (_flowState != FrontendFlowState.Settlement || IsConnecting)
+            if (_flowState != FrontendFlowState.Settlement || IsUiBusy)
             {
                 return;
             }
@@ -72,7 +82,7 @@ namespace SampleClient.Gameplay
 
         public void OnUiReturnToLobbyRequested()
         {
-            if (_flowState != FrontendFlowState.Settlement || IsConnecting)
+            if (_flowState != FrontendFlowState.Settlement || IsUiBusy)
             {
                 return;
             }
@@ -92,7 +102,7 @@ namespace SampleClient.Gameplay
 
         private void OnUiLobbyActionRequested(MetaTab tab, bool isPrimaryAction)
         {
-            if (_metaState == null || _flowState == FrontendFlowState.Matchmaking)
+            if (_metaState == null || _flowState == FrontendFlowState.Matchmaking || HasPendingUiRequest)
             {
                 return;
             }

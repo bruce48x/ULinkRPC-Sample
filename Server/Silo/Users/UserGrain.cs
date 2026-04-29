@@ -122,6 +122,17 @@ public sealed class UserGrain : Grain, IUserGrain
         await _state.WriteStateAsync();
     }
 
+    public async Task AddScoreAsync(int delta)
+    {
+        if (!_state.RecordExists)
+        {
+            return;
+        }
+
+        _state.State.Score = Math.Max(0f, _state.State.Score + delta);
+        await _state.WriteStateAsync();
+    }
+
     public async Task AddWinAsync()
     {
         if (!_state.RecordExists)

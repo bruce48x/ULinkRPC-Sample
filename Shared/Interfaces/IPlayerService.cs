@@ -11,6 +11,12 @@ namespace Shared.Interfaces
     {
         [RpcMethod(1)]
         ValueTask<LoginReply> LoginAsync(LoginRequest req);
+
+        [RpcMethod(4)]
+        ValueTask StartMatchmakingAsync(MatchmakingRequest req);
+
+        [RpcMethod(5)]
+        ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req);
         
         [RpcMethod(2)]
         ValueTask SubmitInput(InputMessage req);
@@ -30,6 +36,9 @@ namespace Shared.Interfaces
 
         [RpcPush(3)]
         void OnMatchEnd(MatchEnd matchEnd);
+
+        [RpcPush(4)]
+        void OnMatchmakingStatus(MatchmakingStatusUpdate matchmakingStatus) { }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -72,6 +81,43 @@ namespace Shared.Interfaces
     [MemoryPackable(GenerateType.VersionTolerant)]
     public partial class LogoutRequest
     {
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class MatchmakingRequest
+    {
+        [MemoryPackOrder(0)]
+        public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(1)]
+        public string Token { get; set; } = "";
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class CancelMatchmakingRequest
+    {
+        [MemoryPackOrder(0)]
+        public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(1)]
+        public string Token { get; set; } = "";
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class MatchmakingStatusUpdate
+    {
+        [MemoryPackOrder(0)]
+        public MatchmakingState State { get; set; }
+        [MemoryPackOrder(1)]
+        public string Message { get; set; } = "";
+        [MemoryPackOrder(2)]
+        public string RoomId { get; set; } = "";
+        [MemoryPackOrder(3)]
+        public int QueuePosition { get; set; }
+        [MemoryPackOrder(4)]
+        public int QueueSize { get; set; }
+        [MemoryPackOrder(5)]
+        public int RoomCapacity { get; set; }
+        [MemoryPackOrder(6)]
+        public int MatchedPlayerCount { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -174,5 +220,15 @@ namespace Shared.Interfaces
         ScorePoint = 2,
         Shield = 3,
         BonusScore = 4
+    }
+
+    public enum MatchmakingState
+    {
+        Unknown = 0,
+        Queued = 1,
+        Searching = 2,
+        Matched = 3,
+        Canceled = 4,
+        Failed = 5
     }
 }

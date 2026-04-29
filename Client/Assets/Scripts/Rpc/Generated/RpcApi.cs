@@ -92,6 +92,10 @@ namespace ULinkRPC.Client
             public virtual void OnMatchEnd(MatchEnd matchEnd)
             {
             }
+
+            public virtual void OnMatchmakingStatus(MatchmakingStatusUpdate matchmakingStatus)
+            {
+            }
         }
 
         public event Action<Exception?>? Disconnected

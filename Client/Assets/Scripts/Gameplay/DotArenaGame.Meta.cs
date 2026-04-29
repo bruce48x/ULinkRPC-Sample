@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace SampleClient.Gameplay
 {
@@ -45,17 +46,32 @@ namespace SampleClient.Gameplay
 
         private void LogOutToModeSelect()
         {
-            _settlementSummary = null;
-            _flowState = FrontendFlowState.Entry;
-            _entryMenuState = EntryMenuState.ModeSelect;
-            _sessionMode = SessionMode.None;
-            _hasAuthenticatedProfile = false;
-            _authenticatedPlayerId = string.Empty;
-            _localPlayerId = string.Empty;
-            _localWinCount = 0;
-            _status = "选择模式";
-            _eventMessage = "已退出联机大厅";
-            PushEvent("已退出联机大厅");
+            if (HasPendingUiRequest)
+            {
+                return;
+            }
+
+            _pendingUiRequest = PendingUiRequest.ExitLobby;
+            _status = "正在退出联机大厅";
+            _eventMessage = "正在断开连接并注销会话";
+            RefreshSceneUi();
+            _ = ExitMultiplayerLobbyAsync();
+        }
+
+        private async Task ExitMultiplayerLobbyAsync()
+        {
+            try
+            {
+                await DisposeConnectionAsync(clearSessionState: false, logout: true);
+                ResetToModeSelect(
+                    status: "选择模式",
+                    eventMessage: "已退出联机大厅",
+                    toastMessage: "已断开连接并退出联机大厅");
+            }
+            finally
+            {
+                _pendingUiRequest = PendingUiRequest.None;
+            }
         }
 
         private void HandleTaskLobbyAction(bool isPrimaryAction)

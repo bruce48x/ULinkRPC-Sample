@@ -7,6 +7,13 @@ namespace Server.Hosting;
 
 internal sealed class RpcServerHostedService : BackgroundService
 {
+    private readonly IServiceProvider _services;
+
+    public RpcServerHostedService(IServiceProvider services)
+    {
+        _services = services;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var args = Environment.GetCommandLineArgs().Skip(1).ToArray();

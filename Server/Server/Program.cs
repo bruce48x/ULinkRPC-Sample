@@ -1,8 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using Server.Hosting;
-using Server.Orleans;
+using Server.Realtime;
+using Server.Runtime;
 using Server.Services;
 
 var builder = Host.CreateApplicationBuilder(args)
@@ -13,17 +13,11 @@ var builder = Host.CreateApplicationBuilder(args)
             clusterId: "dev");
     });
 
-builder.Services.AddSingleton<GameArenaRuntime>();
-builder.Services.Configure<GameArenaOptions>(builder.Configuration.GetSection("GameArena"));
-builder.Services.AddSingleton(static sp =>
-{
-    var options = sp.GetRequiredService<IOptions<GameArenaOptions>>();
-    return options.Value;
-});
-builder.Services.AddHostedService<GameArenaHostedService>();
+builder.Services.AddSingleton<SessionDirectory>();
+builder.Services.AddSingleton<MatchmakingMonitor>();
+builder.Services.AddSingleton<RoomRuntimeHost>();
 builder.Services.AddHostedService<RpcServerHostedService>();
 
 var host = builder.Build();
-ClusterClientRuntime.Initialize(host.Services.GetRequiredService<IClusterClient>());
-GameArenaRuntimeRegistry.Initialize(host.Services.GetRequiredService<GameArenaRuntime>());
+ServerRuntime.Initialize(host.Services);
 await host.RunAsync();

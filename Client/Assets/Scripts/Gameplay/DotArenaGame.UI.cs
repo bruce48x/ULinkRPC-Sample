@@ -66,6 +66,7 @@ namespace SampleClient.Gameplay
                 LastRoundRemainingSeconds = _lastRoundRemainingSeconds,
                 MenuLoginStatusText = GetMenuLoginStatusText(),
                 IsConnecting = IsConnecting,
+                IsBusy = IsUiBusy,
                 SettlementTitle = settlementSummary?.Title ?? string.Empty,
                 SettlementDetail = settlementSummary?.Detail ?? string.Empty,
                 SettlementRewardSummary = settlementSummary?.RewardSummary ?? string.Empty,
@@ -74,7 +75,11 @@ namespace SampleClient.Gameplay
                 SettlementPrimaryActionText = settlementSummary == null
                     ? string.Empty
                     : DotArenaUiTextComposer.GetRematchButtonLabel(settlementSummary.SessionMode),
-                MatchmakingTitle = _sessionMode == SessionMode.SinglePlayer ? "Preparing Local Match" : "Matchmaking",
+                MatchmakingTitle = _sessionMode == SessionMode.SinglePlayer
+                    ? "Preparing Local Match"
+                    : _flowState == FrontendFlowState.Matchmaking
+                        ? "正在排队"
+                        : "联机大厅",
                 MatchmakingDetail = DotArenaUiTextComposer.BuildMatchmakingDetail(_sessionMode, _currentArenaMapVariant, _currentArenaRuleVariant, _status, GetCurrentEventMessage()),
                 MetaPlayerSummary = DotArenaUiTextComposer.BuildMetaPlayerSummary(_metaState, IsInMultiplayerLobby()),
                 MetaLobbyHighlights = DotArenaUiTextComposer.BuildMetaLobbyHighlights(_metaState, IsInMultiplayerLobby(), previewPreset),

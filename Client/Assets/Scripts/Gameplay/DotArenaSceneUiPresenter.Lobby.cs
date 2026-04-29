@@ -38,6 +38,11 @@ namespace SampleClient.Gameplay
 
         private static string GetLobbyQuickActionsText(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
         {
+            if (snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer)
+            {
+                return string.Empty;
+            }
+
             return tab == MetaTab.Lobby ? "Quick Access" : "Sections";
         }
 
@@ -61,10 +66,27 @@ namespace SampleClient.Gameplay
 
         private void RefreshLobbyQuickActionButtons(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
         {
+            if (snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer)
+            {
+                HideLobbyQuickActionButton(_lobbyQuickActionButton1);
+                HideLobbyQuickActionButton(_lobbyQuickActionButton2);
+                HideLobbyQuickActionButton(_lobbyQuickActionButton3);
+                HideLobbyQuickActionButton(_lobbyQuickActionButton4);
+                return;
+            }
+
             RefreshLobbyQuickActionButton(_lobbyQuickActionButton1, _lobbyQuickActionButton1Text, snapshot, tab, 0);
             RefreshLobbyQuickActionButton(_lobbyQuickActionButton2, _lobbyQuickActionButton2Text, snapshot, tab, 1);
             RefreshLobbyQuickActionButton(_lobbyQuickActionButton3, _lobbyQuickActionButton3Text, snapshot, tab, 2);
             RefreshLobbyQuickActionButton(_lobbyQuickActionButton4, _lobbyQuickActionButton4Text, snapshot, tab, 3);
+        }
+
+        private static void HideLobbyQuickActionButton(Button? button)
+        {
+            if (button != null)
+            {
+                button.gameObject.SetActive(false);
+            }
         }
 
         private void RefreshLobbyQuickActionButton(Button? button, TMP_Text? label, in DotArenaSceneUiSnapshot snapshot, MetaTab tab, int index)
@@ -97,7 +119,7 @@ namespace SampleClient.Gameplay
         {
             return tab switch
             {
-                MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "Start Match",
+                MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "开始匹配",
                 MetaTab.Lobby => "Cycle Preset",
                 MetaTab.Tasks => "Claim Ready",
                 MetaTab.Shop => "Buy Cheapest",
@@ -110,7 +132,7 @@ namespace SampleClient.Gameplay
         {
             return tab switch
             {
-                MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "Log Out",
+                MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "退出登录",
                 MetaTab.Lobby => "Preview",
                 MetaTab.Tasks => "Claim Next",
                 MetaTab.Shop => "Equip Next",

@@ -8,6 +8,7 @@ public interface IUserGrain : IGrainWithStringKey
     Task<UserProfileSnapshot> GetProfileAsync();
     Task SetOnlineAsync(bool isOnline);
     Task SetScoreAsync(int score);
+    Task AddScoreAsync(int delta);
     Task AddWinAsync();
 }
 

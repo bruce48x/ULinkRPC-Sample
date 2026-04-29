@@ -31,5 +31,10 @@ namespace Server.Generated
             _ = _session.PushAsync<MatchEnd>(ServiceId, 3, matchEnd).AsTask();
         }
 
+        public void OnMatchmakingStatus(MatchmakingStatusUpdate matchmakingStatus)
+        {
+            _ = _session.PushAsync<MatchmakingStatusUpdate>(ServiceId, 4, matchmakingStatus).AsTask();
+        }
+
     }
 }

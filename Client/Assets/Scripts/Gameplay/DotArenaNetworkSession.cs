@@ -13,6 +13,8 @@ namespace SampleClient.Gameplay
         private readonly Action<Exception?> _onDisconnected;
         private RpcClient? _connection;
         private IPlayerService? _playerService;
+        private string _playerId = string.Empty;
+        private string _token = string.Empty;
 
         public DotArenaNetworkSession(Action<Exception?> onDisconnected)
         {
@@ -61,6 +63,8 @@ namespace SampleClient.Gameplay
                     return reply;
                 }
 
+                _playerId = reply.PlayerId;
+                _token = reply.Token;
                 IsConnected = true;
                 return reply;
             }
@@ -78,6 +82,34 @@ namespace SampleClient.Gameplay
             }
 
             await _playerService.SubmitInput(input);
+        }
+
+        public async Task StartMatchmakingAsync(CancellationToken cancellationToken = default)
+        {
+            if (_playerService == null || string.IsNullOrWhiteSpace(_playerId))
+            {
+                return;
+            }
+
+            await _playerService.StartMatchmakingAsync(new MatchmakingRequest
+            {
+                PlayerId = _playerId,
+                Token = _token
+            }).ConfigureAwait(false);
+        }
+
+        public async Task CancelMatchmakingAsync(CancellationToken cancellationToken = default)
+        {
+            if (_playerService == null || string.IsNullOrWhiteSpace(_playerId))
+            {
+                return;
+            }
+
+            await _playerService.CancelMatchmakingAsync(new CancelMatchmakingRequest
+            {
+                PlayerId = _playerId,
+                Token = _token
+            }).ConfigureAwait(false);
         }
 
         public async Task DisposeAsync(bool logout = true)
@@ -118,6 +150,8 @@ namespace SampleClient.Gameplay
             finally
             {
                 _playerService = null;
+                _playerId = string.Empty;
+                _token = string.Empty;
                 IsConnected = false;
                 IsConnecting = false;
             }
@@ -127,6 +161,8 @@ namespace SampleClient.Gameplay
         {
             IsConnected = false;
             _playerService = null;
+            _playerId = string.Empty;
+            _token = string.Empty;
             _onDisconnected(ex);
         }
     }

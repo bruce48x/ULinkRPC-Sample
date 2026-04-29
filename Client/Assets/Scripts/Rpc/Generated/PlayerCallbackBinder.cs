@@ -15,6 +15,7 @@ namespace Rpc.Generated
         private static readonly RpcPushMethod<WorldState> onWorldStatePushMethod = new(ServiceId, 1);
         private static readonly RpcPushMethod<PlayerDead> onPlayerDeadPushMethod = new(ServiceId, 2);
         private static readonly RpcPushMethod<MatchEnd> onMatchEndPushMethod = new(ServiceId, 3);
+        private static readonly RpcPushMethod<MatchmakingStatusUpdate> onMatchmakingStatusPushMethod = new(ServiceId, 4);
 
         public static void Bind(IRpcClient client, IPlayerCallback receiver)
         {
@@ -31,6 +32,11 @@ namespace Rpc.Generated
             client.RegisterPushHandler(onMatchEndPushMethod, (arg) =>
             {
                 receiver.OnMatchEnd(arg);
+            });
+
+            client.RegisterPushHandler(onMatchmakingStatusPushMethod, (arg) =>
+            {
+                receiver.OnMatchmakingStatus(arg);
             });
 
         }
