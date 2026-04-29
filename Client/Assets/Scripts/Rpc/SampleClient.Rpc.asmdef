@@ -1,0 +1,21 @@
+{
+  "name": "SampleClient.Rpc",
+  "rootNamespace": "Rpc",
+  "references": [
+    "Shared",
+    "ULinkRPC.Generated",
+    "ULinkRPC.Client",
+    "ULinkRPC.Core",
+    "ULinkRPC.Serializer.MemoryPack",
+    "ULinkRPC.Transport.WebSocket"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
