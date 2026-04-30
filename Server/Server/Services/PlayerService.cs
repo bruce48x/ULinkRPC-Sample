@@ -1,10 +1,8 @@
-using Orleans.Contracts.Matchmaking;
-using Orleans.Contracts.Rooms;
-using Orleans.Contracts.Sessions;
 using Orleans.Contracts.Users;
 using Server.Realtime;
 using Server.Runtime;
 using Shared.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Server.Services;
 
@@ -13,21 +11,23 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
     private readonly IClusterClient _clusterClient;
     private readonly IPlayerCallback _callback;
     private readonly SessionDirectory _sessionDirectory;
-    private readonly MatchmakingMonitor _matchmakingMonitor;
+    private readonly GatewayMatchmakingService _gatewayMatchmaking;
     private readonly RoomRuntimeHost _roomRuntimeHost;
+    private readonly ILogger<PlayerService> _logger;
     private bool _disposed;
     private string? _playerId;
-    private string? _sessionToken;
     private string? _connectionId;
-    private CancellationTokenSource? _assignmentWatchCts;
+    private bool _isRealtimeConnection;
+    private bool _controlLoggedIn;
 
     public PlayerService(IPlayerCallback callback)
     {
         _callback = callback;
         _clusterClient = ServerRuntime.GetRequiredService<IClusterClient>();
         _sessionDirectory = ServerRuntime.GetRequiredService<SessionDirectory>();
-        _matchmakingMonitor = ServerRuntime.GetRequiredService<MatchmakingMonitor>();
+        _gatewayMatchmaking = ServerRuntime.GetRequiredService<GatewayMatchmakingService>();
         _roomRuntimeHost = ServerRuntime.GetRequiredService<RoomRuntimeHost>();
+        _logger = ServerRuntime.GetRequiredService<ILogger<PlayerService>>();
     }
 
     public async ValueTask DisposeAsync()
@@ -58,26 +58,17 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
                 .LoginAsync(req.Password)
                 .ConfigureAwait(false);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            _logger.LogWarning(ex, "Login rejected for account {Account}.", req.Account);
             return new LoginReply { Code = 2 };
         }
 
         _playerId = loginResult.UserId;
-        _sessionToken = loginResult.SessionToken;
         _connectionId = Guid.NewGuid().ToString("N");
+        _controlLoggedIn = true;
 
-        _sessionDirectory.Register(loginResult.UserId, _callback);
-
-        await _clusterClient.GetGrain<IPlayerSessionGrain>(loginResult.UserId)
-            .AttachAsync(new PlayerSessionAttachRequest
-            {
-                UserId = loginResult.UserId,
-                SessionToken = loginResult.SessionToken,
-                ConnectionId = _connectionId,
-                AttachedAtUtc = DateTime.UtcNow
-            })
-            .ConfigureAwait(false);
+        _sessionDirectory.Register(loginResult.UserId, loginResult.SessionToken, _connectionId, _callback);
 
         return new LoginReply
         {
@@ -97,31 +88,7 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
             return;
         }
 
-        CancelAssignmentWatch();
-
-        var result = await _clusterClient.GetGrain<IMatchmakingGrain>("default")
-            .EnqueueAsync(new MatchmakingEnqueueRequest
-            {
-                UserId = _playerId,
-                SessionToken = req.Token,
-                EnqueuedAtUtc = DateTime.UtcNow,
-                Priority = 0
-            })
-            .ConfigureAwait(false);
-
-        SafeInvoke(_callback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
-        {
-            State = result.Matched ? Shared.Interfaces.MatchmakingState.Matched : Shared.Interfaces.MatchmakingState.Queued,
-            QueuePosition = result.QueuePosition,
-            QueueSize = result.QueuePosition > 0 ? result.QueuePosition : result.RoomAssignment.Players.Count,
-            RoomCapacity = result.RoomAssignment.Players.Count > 0 ? result.RoomAssignment.Players.Count : 10,
-            RoomId = result.RoomAssignment.RoomId,
-            MatchedPlayerCount = result.RoomAssignment.Players.Count,
-            Message = result.Message
-        }));
-
-        _assignmentWatchCts = new CancellationTokenSource();
-        _ = _matchmakingMonitor.WatchForRoomAssignmentAsync(_playerId, _assignmentWatchCts.Token);
+        await _gatewayMatchmaking.EnqueueAsync(_playerId).ConfigureAwait(false);
     }
 
     public async ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req)
@@ -133,27 +100,50 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
             return;
         }
 
-        CancelAssignmentWatch();
+        await _gatewayMatchmaking.CancelAsync(_playerId, "Matchmaking cancelled").ConfigureAwait(false);
+    }
 
-        await _clusterClient.GetGrain<IMatchmakingGrain>("default")
-            .CancelAsync(new MatchmakingCancelRequest
-            {
-                UserId = _playerId,
-                TicketId = req.Token,
-                CancelledAtUtc = DateTime.UtcNow,
-                Reason = "Client cancelled"
-            })
-            .ConfigureAwait(false);
+    public ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req)
+    {
+        ThrowIfDisposed();
 
-        SafeInvoke(_callback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
+        if (string.IsNullOrWhiteSpace(req.PlayerId) ||
+            string.IsNullOrWhiteSpace(req.Token) ||
+            string.IsNullOrWhiteSpace(req.RoomId) ||
+            string.IsNullOrWhiteSpace(req.MatchId))
         {
-            State = Shared.Interfaces.MatchmakingState.Canceled,
-            QueueSize = 0,
-            RoomCapacity = 10,
-            RoomId = string.Empty,
-            MatchedPlayerCount = 0,
-            Message = "Matchmaking cancelled"
-        }));
+            return ValueTask.FromResult(new RealtimeAttachReply
+            {
+                Code = 1,
+                Message = "Realtime attach request is incomplete."
+            });
+        }
+
+        _playerId = req.PlayerId;
+        _connectionId = Guid.NewGuid().ToString("N");
+        _isRealtimeConnection = true;
+
+        var attached = _sessionDirectory.AttachRealtime(req.PlayerId, req.Token, req.RoomId, req.MatchId, _connectionId, _callback);
+        if (!attached)
+        {
+            _playerId = null;
+            _connectionId = null;
+            _isRealtimeConnection = false;
+            return ValueTask.FromResult(new RealtimeAttachReply
+            {
+                Code = 2,
+                Message = "Realtime session attach rejected."
+            });
+        }
+
+        return ValueTask.FromResult(new RealtimeAttachReply
+        {
+            Code = 0,
+            Message = "Realtime session attached.",
+            PlayerId = req.PlayerId,
+            RoomId = req.RoomId,
+            MatchId = req.MatchId
+        });
     }
 
     public ValueTask SubmitInput(InputMessage req)
@@ -192,7 +182,6 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
 
         await ReleasePlayerAsync(_playerId, "Logout").ConfigureAwait(false);
         _playerId = null;
-        _sessionToken = null;
         _connectionId = null;
     }
 
@@ -207,75 +196,47 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
 
         if (!string.IsNullOrWhiteSpace(_playerId))
         {
-            await ReleasePlayerAsync(_playerId, "Dispose").ConfigureAwait(false);
+            if (_isRealtimeConnection && !_controlLoggedIn)
+            {
+                await ReleaseRealtimeAsync(_playerId, "Realtime disconnect").ConfigureAwait(false);
+            }
+            else
+            {
+                await ReleasePlayerAsync(_playerId, "Dispose").ConfigureAwait(false);
+            }
+
             _playerId = null;
-            _sessionToken = null;
             _connectionId = null;
         }
     }
 
     private async Task ReleasePlayerAsync(string playerId, string reason)
     {
-        CancelAssignmentWatch();
-
         var registration = _sessionDirectory.Get(playerId);
-        if (registration is not null && !string.IsNullOrWhiteSpace(registration.RoomId))
-        {
-            await _clusterClient.GetGrain<IRoomGrain>(registration.RoomId)
-                .LeaveAsync(new RoomPlayerLeaveRequest
-                {
-                    UserId = playerId,
-                    RoomId = registration.RoomId,
-                    LeftAtUtc = DateTime.UtcNow,
-                    Reason = reason
-                })
-                .ConfigureAwait(false);
-            await _roomRuntimeHost.RemovePlayerAsync(registration.RoomId, playerId).ConfigureAwait(false);
-        }
-        _sessionDirectory.Remove(playerId);
-
         try
         {
-            await _clusterClient.GetGrain<IMatchmakingGrain>("default")
-                .CancelAsync(new MatchmakingCancelRequest
-                {
-                    UserId = playerId,
-                    TicketId = string.Empty,
-                    CancelledAtUtc = DateTime.UtcNow,
-                    Reason = reason
-                })
-                .ConfigureAwait(false);
-
-            await _clusterClient.GetGrain<IPlayerSessionGrain>(playerId)
-                .MarkDisconnectedAsync(new PlayerSessionDisconnectRequest
-                {
-                    UserId = playerId,
-                    ConnectionId = _connectionId ?? string.Empty,
-                    DisconnectedAtUtc = DateTime.UtcNow,
-                    Reason = reason
-                })
-                .ConfigureAwait(false);
-
-            if (registration is not null && !string.IsNullOrWhiteSpace(registration.RoomId))
-            {
-                await _clusterClient.GetGrain<IPlayerSessionGrain>(playerId)
-                    .ClearRoomAsync(new PlayerRoomClearRequest
-                    {
-                        UserId = playerId,
-                        RoomId = registration.RoomId,
-                        ClearedAtUtc = DateTime.UtcNow,
-                        Reason = reason
-                    })
-                    .ConfigureAwait(false);
-            }
-
+            await _gatewayMatchmaking.ReleasePlayerAsync(playerId, reason).ConfigureAwait(false);
             await _clusterClient.GetGrain<IUserGrain>(playerId)
                 .SetOnlineAsync(false)
                 .ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to release player {PlayerId} during {Reason}.", playerId, reason);
         }
+
+        if (registration is not null && !string.IsNullOrWhiteSpace(registration.RoomId))
+        {
+            _sessionDirectory.ClearRoom(playerId, registration.RoomId);
+        }
+
+        _sessionDirectory.Remove(playerId);
+    }
+
+    private Task ReleaseRealtimeAsync(string playerId, string reason)
+    {
+        _sessionDirectory.DetachRealtime(playerId, _connectionId);
+        return Task.CompletedTask;
     }
 
     private void ThrowIfDisposed()
@@ -283,26 +244,4 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
-    private void CancelAssignmentWatch()
-    {
-        if (_assignmentWatchCts is null)
-        {
-            return;
-        }
-
-        _assignmentWatchCts.Cancel();
-        _assignmentWatchCts.Dispose();
-        _assignmentWatchCts = null;
-    }
-
-    private static void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
-    {
-        try
-        {
-            action(callback);
-        }
-        catch
-        {
-        }
-    }
 }

@@ -136,7 +136,7 @@ namespace Shared.Gameplay
                 registration.IsBot,
                 registration.BotNumber)
             {
-                Position = GetSpawnPosition(spawnIndex)
+                Position = GetRandomSpawnPosition()
             };
             ResetPlayerBody(player, _options.InitialMass);
             _players.Add(registration.PlayerId, player);
@@ -536,7 +536,7 @@ namespace Shared.Gameplay
 
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
             {
-                player.Position = GetSpawnPosition(player.SpawnIndex);
+                player.Position = GetRandomSpawnPosition(player.PlayerId);
                 player.Score = 0;
                 ResetPlayerBody(player, _options.InitialMass);
                 player.Alive = true;
@@ -596,7 +596,7 @@ namespace Shared.Gameplay
 
         private void RespawnPlayer(ArenaPlayer player)
         {
-            player.Position = GetSpawnPosition(player.SpawnIndex);
+            player.Position = GetRandomSpawnPosition(player.PlayerId);
             ResetPlayerBody(player, _options.RespawnMass);
             player.Alive = true;
             player.RespawnRemaining = 0f;
@@ -667,6 +667,36 @@ namespace Shared.Gameplay
             };
 
             return points[index % points.Length];
+        }
+
+        private Vector2 GetRandomSpawnPosition(string? playerIdToIgnore = null)
+        {
+            var minX = -MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.RespawnInset);
+            var maxX = MathF.Max(0.5f, _currentArenaHalfExtents.x - _options.Arena.RespawnInset);
+            var minY = -MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.RespawnInset);
+            var maxY = MathF.Max(0.5f, _currentArenaHalfExtents.y - _options.Arena.RespawnInset);
+            var minDistance = MathF.Max(2.8f, _options.Arena.PlayerVisualRadius * 2.4f);
+
+            for (var attempt = 0; attempt < 12; attempt++)
+            {
+                var candidate = new Vector2(
+                    (float)(_random.NextDouble() * (maxX - minX)) + minX,
+                    (float)(_random.NextDouble() * (maxY - minY)) + minY);
+
+                var overlaps = _players.Values.Any(player =>
+                    player.Alive &&
+                    !string.Equals(player.PlayerId, playerIdToIgnore, StringComparison.Ordinal) &&
+                    LengthSquared(player.Position - candidate) < minDistance * minDistance);
+
+                if (!overlaps)
+                {
+                    return candidate;
+                }
+            }
+
+            return new Vector2(
+                (float)(_random.NextDouble() * (maxX - minX)) + minX,
+                (float)(_random.NextDouble() * (maxY - minY)) + minY);
         }
 
         private ArenaFood CreateFood()

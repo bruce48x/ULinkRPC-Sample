@@ -1,3 +1,5 @@
+#nullable enable
+
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using MemoryPack;
@@ -17,6 +19,9 @@ namespace Shared.Interfaces
 
         [RpcMethod(5)]
         ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req);
+
+        [RpcMethod(6)]
+        ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req);
         
         [RpcMethod(2)]
         ValueTask SubmitInput(InputMessage req);
@@ -102,6 +107,34 @@ namespace Shared.Interfaces
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class RealtimeAttachRequest
+    {
+        [MemoryPackOrder(0)]
+        public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(1)]
+        public string Token { get; set; } = "";
+        [MemoryPackOrder(2)]
+        public string RoomId { get; set; } = "";
+        [MemoryPackOrder(3)]
+        public string MatchId { get; set; } = "";
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class RealtimeAttachReply
+    {
+        [MemoryPackOrder(0)]
+        public int Code { get; set; }
+        [MemoryPackOrder(1)]
+        public string Message { get; set; } = "";
+        [MemoryPackOrder(2)]
+        public string PlayerId { get; set; } = "";
+        [MemoryPackOrder(3)]
+        public string RoomId { get; set; } = "";
+        [MemoryPackOrder(4)]
+        public string MatchId { get; set; } = "";
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
     public partial class MatchmakingStatusUpdate
     {
         [MemoryPackOrder(0)]
@@ -118,6 +151,27 @@ namespace Shared.Interfaces
         public int RoomCapacity { get; set; }
         [MemoryPackOrder(6)]
         public int MatchedPlayerCount { get; set; }
+        [MemoryPackOrder(7)]
+        public RealtimeConnectionInfo? RealtimeConnection { get; set; }
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class RealtimeConnectionInfo
+    {
+        [MemoryPackOrder(0)]
+        public RealtimeTransportKind Transport { get; set; }
+        [MemoryPackOrder(1)]
+        public string Host { get; set; } = "";
+        [MemoryPackOrder(2)]
+        public int Port { get; set; }
+        [MemoryPackOrder(3)]
+        public string Path { get; set; } = "";
+        [MemoryPackOrder(4)]
+        public string RoomId { get; set; } = "";
+        [MemoryPackOrder(5)]
+        public string MatchId { get; set; } = "";
+        [MemoryPackOrder(6)]
+        public string SessionToken { get; set; } = "";
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -230,5 +284,12 @@ namespace Shared.Interfaces
         Matched = 3,
         Canceled = 4,
         Failed = 5
+    }
+
+    public enum RealtimeTransportKind
+    {
+        Unknown = 0,
+        WebSocket = 1,
+        Kcp = 2
     }
 }

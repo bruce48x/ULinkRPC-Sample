@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using Shared.Gameplay;
 using Shared.Interfaces;
 using UnityEngine;
@@ -148,112 +147,50 @@ namespace SampleClient.Gameplay
             _sessionMode = SessionMode.Multiplayer;
             _localPlayerId = string.IsNullOrWhiteSpace(_authenticatedPlayerId) ? _localPlayerId : _authenticatedPlayerId;
 
-            var statusText = BuildMatchmakingStatusText(matchmakingStatus);
-            var detailText = BuildMatchmakingStatusDetail(matchmakingStatus);
-
-            switch (matchmakingStatus.State)
+            if (matchmakingStatus.State == MatchmakingState.Matched &&
+                matchmakingStatus.RealtimeConnection is { Transport: RealtimeTransportKind.Kcp } realtimeConnection)
             {
-                case MatchmakingState.Canceled:
-                    if (_pendingUiRequest == PendingUiRequest.CancelMatchmaking)
-                    {
-                        _pendingUiRequest = PendingUiRequest.None;
-                    }
-                    _flowState = FrontendFlowState.Entry;
-                    _entryMenuState = EntryMenuState.MultiplayerLobby;
-                    _status = statusText;
-                    _eventMessage = string.IsNullOrWhiteSpace(detailText)
-                        ? "已返回联机大厅"
-                        : detailText;
-                    return;
-                case MatchmakingState.Failed:
-                    if (_pendingUiRequest == PendingUiRequest.CancelMatchmaking)
-                    {
-                        _pendingUiRequest = PendingUiRequest.None;
-                    }
-                    _flowState = FrontendFlowState.Entry;
-                    _entryMenuState = EntryMenuState.MultiplayerLobby;
-                    _status = statusText;
-                    _eventMessage = string.IsNullOrWhiteSpace(detailText)
-                        ? "请重新开始匹配"
-                        : detailText;
-                    return;
-                case MatchmakingState.Matched:
-                    if (_pendingUiRequest == PendingUiRequest.CancelMatchmaking)
-                    {
-                        _pendingUiRequest = PendingUiRequest.None;
-                    }
-                    _flowState = FrontendFlowState.Matchmaking;
-                    _entryMenuState = EntryMenuState.Hidden;
-                    _status = statusText;
-                    _eventMessage = string.IsNullOrWhiteSpace(detailText)
-                        ? "房间已就绪，等待世界状态"
-                        : detailText;
-                    return;
-                default:
-                    if (_pendingUiRequest == PendingUiRequest.CancelMatchmaking &&
-                        matchmakingStatus.State is MatchmakingState.Queued or MatchmakingState.Searching)
-                    {
-                        _status = "正在取消匹配";
-                        _eventMessage = "等待服务器确认取消";
-                        return;
-                    }
-
-                    _flowState = FrontendFlowState.Matchmaking;
-                    _entryMenuState = EntryMenuState.Hidden;
-                    _status = statusText;
-                    _eventMessage = string.IsNullOrWhiteSpace(detailText)
-                        ? statusText
-                        : detailText;
-                    return;
+                _status = "房间已就绪，正在连接 KCP";
+                _eventMessage = $"正在建立实时连接 {realtimeConnection.Host}:{realtimeConnection.Port}";
+                _ = EnsureRealtimeSessionAsync(realtimeConnection);
             }
+
+            var viewState = DotArenaMultiplayerFlow.BuildMatchmakingViewState(
+                matchmakingStatus,
+                _pendingUiRequest == PendingUiRequest.CancelMatchmaking);
+
+            if (viewState.ClearPendingCancelRequest)
+            {
+                _pendingUiRequest = PendingUiRequest.None;
+            }
+
+            _flowState = viewState.FlowState;
+            _entryMenuState = viewState.EntryMenuState;
+            _status = viewState.Status;
+            _eventMessage = viewState.EventMessage;
         }
 
-        private static string BuildMatchmakingStatusText(MatchmakingStatusUpdate matchmakingStatus)
+        private async System.Threading.Tasks.Task EnsureRealtimeSessionAsync(RealtimeConnectionInfo realtimeConnection)
         {
-            if (!string.IsNullOrWhiteSpace(matchmakingStatus.Message))
+            try
             {
-                return matchmakingStatus.Message;
+                var connected = await NetworkSession
+                    .EnsureRealtimeConnectedAsync(realtimeConnection, this, _cts.Token)
+                    .ConfigureAwait(false);
+
+                if (!connected)
+                {
+                    _callbackInbox.EnqueueDisconnected("KCP realtime attach failed");
+                }
             }
-
-            return matchmakingStatus.State switch
+            catch (OperationCanceledException)
             {
-                MatchmakingState.Queued when matchmakingStatus.QueueSize > 0 => $"排队中 {matchmakingStatus.QueuePosition}/{matchmakingStatus.QueueSize}",
-                MatchmakingState.Queued => "排队中",
-                MatchmakingState.Searching when matchmakingStatus.MatchedPlayerCount > 0 && matchmakingStatus.RoomCapacity > 0 => $"匹配中 {matchmakingStatus.MatchedPlayerCount}/{matchmakingStatus.RoomCapacity}",
-                MatchmakingState.Searching => "匹配中",
-                MatchmakingState.Matched when !string.IsNullOrWhiteSpace(matchmakingStatus.RoomId) => $"已进入房间 {matchmakingStatus.RoomId}",
-                MatchmakingState.Matched => "已进入房间",
-                MatchmakingState.Canceled => "已取消匹配",
-                MatchmakingState.Failed => "匹配失败",
-                _ => "等待匹配"
-            };
-        }
-
-        private static string BuildMatchmakingStatusDetail(MatchmakingStatusUpdate matchmakingStatus)
-        {
-            var details = new List<string>();
-
-            if (matchmakingStatus.QueuePosition > 0 && matchmakingStatus.QueueSize > 0)
-            {
-                details.Add($"Queue {matchmakingStatus.QueuePosition}/{matchmakingStatus.QueueSize}");
             }
-
-            if (matchmakingStatus.MatchedPlayerCount > 0 && matchmakingStatus.RoomCapacity > 0)
+            catch (Exception ex)
             {
-                details.Add($"Room {matchmakingStatus.MatchedPlayerCount}/{matchmakingStatus.RoomCapacity}");
+                Debug.LogError($"[DotArena] Realtime connect failed: {ex}");
+                _callbackInbox.EnqueueDisconnected(ex.Message);
             }
-
-            if (!string.IsNullOrWhiteSpace(matchmakingStatus.RoomId))
-            {
-                details.Add($"Room {matchmakingStatus.RoomId}");
-            }
-
-            if (!string.IsNullOrWhiteSpace(matchmakingStatus.Message))
-            {
-                details.Add(matchmakingStatus.Message);
-            }
-
-            return details.Count == 0 ? string.Empty : string.Join("  |  ", details);
         }
     }
 }

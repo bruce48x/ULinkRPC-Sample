@@ -1,15 +1,68 @@
 #nullable enable
 
+using System;
 using TMPro;
+using UnityEngine;
 using UnityEngine.UI;
 
 namespace SampleClient.Gameplay
 {
-    internal sealed partial class DotArenaSceneUiPresenter
+    internal sealed class DotArenaSceneLobbyUiCoordinator
     {
-        private static string GetLobbyTabTitle(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
+        public MetaTab SelectedTab { get; private set; } = MetaTab.Lobby;
+
+        public bool IsSelected(MetaTab tab)
         {
-            return tab switch
+            return SelectedTab == tab;
+        }
+
+        public void BindLobbyTabButton(Button? button, MetaTab tab)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(() => SelectedTab = tab);
+        }
+
+        public void BindLobbyQuickActionButton(Button? button, int index)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(() =>
+            {
+                var targetTab = GetLobbyQuickActionTarget(SelectedTab, index);
+                if (targetTab.HasValue)
+                {
+                    SelectedTab = targetTab.Value;
+                }
+            });
+        }
+
+        public void BindLobbyActionButtons(Button? primaryButton, Button? secondaryButton, Action<MetaTab, bool> onLobbyActionRequested)
+        {
+            if (primaryButton != null)
+            {
+                primaryButton.onClick.RemoveAllListeners();
+                primaryButton.onClick.AddListener(() => onLobbyActionRequested(SelectedTab, true));
+            }
+
+            if (secondaryButton != null)
+            {
+                secondaryButton.onClick.RemoveAllListeners();
+                secondaryButton.onClick.AddListener(() => onLobbyActionRequested(SelectedTab, false));
+            }
+        }
+
+        public string GetLobbyTabTitle(in DotArenaSceneUiSnapshot snapshot)
+        {
+            return SelectedTab switch
             {
                 MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "Multiplayer Lobby",
                 MetaTab.Lobby => "Profile",
@@ -22,9 +75,9 @@ namespace SampleClient.Gameplay
             };
         }
 
-        private static string GetLobbyTabDetail(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
+        public string GetLobbyTabDetail(in DotArenaSceneUiSnapshot snapshot)
         {
-            return tab switch
+            return SelectedTab switch
             {
                 MetaTab.Lobby => snapshot.MetaProfileDetail,
                 MetaTab.Tasks => snapshot.MetaTasksDetail,
@@ -36,88 +89,34 @@ namespace SampleClient.Gameplay
             };
         }
 
-        private static string GetLobbyQuickActionsText(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
+        public string GetLobbyHighlightsText(in DotArenaSceneUiSnapshot snapshot)
+        {
+            return SelectedTab == MetaTab.Lobby ? snapshot.MetaLobbyHighlights : string.Empty;
+        }
+
+        public string GetLobbyQuickActionsText(in DotArenaSceneUiSnapshot snapshot)
         {
             if (snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer)
             {
                 return string.Empty;
             }
 
-            return tab == MetaTab.Lobby ? "Quick Access" : "Sections";
+            return SelectedTab == MetaTab.Lobby ? "Quick Access" : "Sections";
         }
 
-        private void BindQuickActionButton(Button? button, int index)
+        public bool HasLobbyPrimaryAction()
         {
-            if (button == null)
-            {
-                return;
-            }
-
-            button.onClick.RemoveAllListeners();
-            button.onClick.AddListener(() =>
-            {
-                var targetTab = GetLobbyQuickActionTarget(_selectedLobbyTab, index);
-                if (targetTab.HasValue)
-                {
-                    _selectedLobbyTab = targetTab.Value;
-                }
-            });
+            return SelectedTab is MetaTab.Lobby or MetaTab.Tasks or MetaTab.Shop or MetaTab.Settings;
         }
 
-        private void RefreshLobbyQuickActionButtons(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
+        public bool HasLobbySecondaryAction()
         {
-            if (snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer)
-            {
-                HideLobbyQuickActionButton(_lobbyQuickActionButton1);
-                HideLobbyQuickActionButton(_lobbyQuickActionButton2);
-                HideLobbyQuickActionButton(_lobbyQuickActionButton3);
-                HideLobbyQuickActionButton(_lobbyQuickActionButton4);
-                return;
-            }
-
-            RefreshLobbyQuickActionButton(_lobbyQuickActionButton1, _lobbyQuickActionButton1Text, snapshot, tab, 0);
-            RefreshLobbyQuickActionButton(_lobbyQuickActionButton2, _lobbyQuickActionButton2Text, snapshot, tab, 1);
-            RefreshLobbyQuickActionButton(_lobbyQuickActionButton3, _lobbyQuickActionButton3Text, snapshot, tab, 2);
-            RefreshLobbyQuickActionButton(_lobbyQuickActionButton4, _lobbyQuickActionButton4Text, snapshot, tab, 3);
+            return SelectedTab is MetaTab.Lobby or MetaTab.Tasks or MetaTab.Shop or MetaTab.Settings;
         }
 
-        private static void HideLobbyQuickActionButton(Button? button)
+        public string GetLobbyPrimaryActionLabel(in DotArenaSceneUiSnapshot snapshot)
         {
-            if (button != null)
-            {
-                button.gameObject.SetActive(false);
-            }
-        }
-
-        private void RefreshLobbyQuickActionButton(Button? button, TMP_Text? label, in DotArenaSceneUiSnapshot snapshot, MetaTab tab, int index)
-        {
-            if (button == null)
-            {
-                return;
-            }
-
-            var text = GetLobbyQuickActionHint(snapshot, tab, index);
-            var hasAction = !string.IsNullOrWhiteSpace(text);
-            button.gameObject.SetActive(hasAction);
-            if (hasAction)
-            {
-                SetText(label, text);
-            }
-        }
-
-        private static bool HasLobbyPrimaryAction(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
-        {
-            return tab is MetaTab.Lobby or MetaTab.Tasks or MetaTab.Shop or MetaTab.Settings;
-        }
-
-        private static bool HasLobbySecondaryAction(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
-        {
-            return tab is MetaTab.Lobby or MetaTab.Tasks or MetaTab.Shop or MetaTab.Settings;
-        }
-
-        private static string GetLobbyPrimaryActionLabel(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
-        {
-            return tab switch
+            return SelectedTab switch
             {
                 MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "开始匹配",
                 MetaTab.Lobby => "Cycle Preset",
@@ -128,9 +127,9 @@ namespace SampleClient.Gameplay
             };
         }
 
-        private static string GetLobbySecondaryActionLabel(in DotArenaSceneUiSnapshot snapshot, MetaTab tab)
+        public string GetLobbySecondaryActionLabel(in DotArenaSceneUiSnapshot snapshot)
         {
-            return tab switch
+            return SelectedTab switch
             {
                 MetaTab.Lobby when snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer => "退出登录",
                 MetaTab.Lobby => "Preview",
@@ -141,9 +140,9 @@ namespace SampleClient.Gameplay
             };
         }
 
-        private static string GetLobbyQuickActionHint(in DotArenaSceneUiSnapshot snapshot, MetaTab tab, int index)
+        public string GetLobbyQuickActionHint(in DotArenaSceneUiSnapshot snapshot, int index)
         {
-            return (snapshot.EntryMenuState, snapshot.SessionMode, tab, index) switch
+            return (snapshot.EntryMenuState, snapshot.SessionMode, SelectedTab, index) switch
             {
                 (EntryMenuState.MultiplayerLobby, SessionMode.Multiplayer, MetaTab.Lobby, 0) => "Match History",
                 (EntryMenuState.MultiplayerLobby, SessionMode.Multiplayer, MetaTab.Lobby, 1) => "Lobby Board",
@@ -181,7 +180,81 @@ namespace SampleClient.Gameplay
             };
         }
 
-        private MetaTab? GetLobbyQuickActionTarget(MetaTab currentTab, int index)
+        public void RefreshLobbyQuickActionButtons(
+            in DotArenaSceneUiSnapshot snapshot,
+            Button? button1,
+            TMP_Text? label1,
+            Button? button2,
+            TMP_Text? label2,
+            Button? button3,
+            TMP_Text? label3,
+            Button? button4,
+            TMP_Text? label4)
+        {
+            if (snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby && snapshot.SessionMode == SessionMode.Multiplayer)
+            {
+                HideLobbyQuickActionButton(button1);
+                HideLobbyQuickActionButton(button2);
+                HideLobbyQuickActionButton(button3);
+                HideLobbyQuickActionButton(button4);
+                return;
+            }
+
+            RefreshLobbyQuickActionButton(button1, label1, snapshot, 0);
+            RefreshLobbyQuickActionButton(button2, label2, snapshot, 1);
+            RefreshLobbyQuickActionButton(button3, label3, snapshot, 2);
+            RefreshLobbyQuickActionButton(button4, label4, snapshot, 3);
+        }
+
+        public void ApplyLobbyActionLayout(
+            in DotArenaSceneUiSnapshot snapshot,
+            RectTransform? panelRect,
+            RectTransform? detailRect,
+            RectTransform? primaryRect,
+            RectTransform? secondaryRect,
+            RectTransform? footerRect)
+        {
+            if (panelRect == null || primaryRect == null || secondaryRect == null || detailRect == null || footerRect == null)
+            {
+                return;
+            }
+
+            var isMultiplayerLobby = snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby &&
+                                     snapshot.SessionMode == SessionMode.Multiplayer;
+
+            if (!isMultiplayerLobby)
+            {
+                SetAnchoredPosition(detailRect, new Vector2(0f, -326f));
+                SetSizeDelta(detailRect, new Vector2(980f, 290f));
+                SetAnchoredPosition(primaryRect, new Vector2(-120f, -650f));
+                SetAnchoredPosition(secondaryRect, new Vector2(120f, -650f));
+                SetAnchoredPosition(footerRect, new Vector2(0f, -708f));
+                SetSizeDelta(footerRect, new Vector2(980f, 24f));
+                return;
+            }
+
+            var panelHeight = panelRect.rect.height;
+            var footerHeight = footerRect.sizeDelta.y > 0f ? footerRect.sizeDelta.y : 24f;
+            var buttonHeight = Mathf.Max(primaryRect.sizeDelta.y, secondaryRect.sizeDelta.y, 42f);
+            const float detailTop = 238f;
+            const float detailGap = 18f;
+            const float buttonGap = 24f;
+            const float bottomPadding = 30f;
+            const float buttonXOffset = 120f;
+
+            var footerTop = panelHeight - footerHeight - bottomPadding;
+            var buttonTop = footerTop - buttonGap - buttonHeight;
+            var detailHeight = Mathf.Max(84f, buttonTop - detailTop - detailGap);
+
+            SetAnchoredPosition(detailRect, new Vector2(0f, -detailTop));
+            SetSizeDelta(detailRect, new Vector2(980f, detailHeight));
+            SetAnchoredPosition(primaryRect, new Vector2(-buttonXOffset, -buttonTop));
+            SetAnchoredPosition(secondaryRect, new Vector2(buttonXOffset, -buttonTop));
+            SetAnchoredPosition(footerRect, new Vector2(0f, -footerTop));
+            SetSizeDelta(footerRect, new Vector2(980f, footerHeight));
+        }
+
+        private static MetaTab? GetLobbyQuickActionTarget(MetaTab currentTab, int index)
         {
             return (currentTab, index) switch
             {
@@ -211,6 +284,56 @@ namespace SampleClient.Gameplay
                 (MetaTab.Settings, 3) => MetaTab.Leaderboard,
                 _ => null
             };
+        }
+
+        private void RefreshLobbyQuickActionButton(Button? button, TMP_Text? label, in DotArenaSceneUiSnapshot snapshot, int index)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            var text = GetLobbyQuickActionHint(snapshot, index);
+            var hasAction = !string.IsNullOrWhiteSpace(text);
+            button.gameObject.SetActive(hasAction);
+            if (hasAction)
+            {
+                SetText(label, text);
+            }
+        }
+
+        private static void HideLobbyQuickActionButton(Button? button)
+        {
+            if (button != null)
+            {
+                button.gameObject.SetActive(false);
+            }
+        }
+
+        private static void SetAnchoredPosition(RectTransform? rectTransform, Vector2 anchoredPosition)
+        {
+            if (rectTransform != null)
+            {
+                rectTransform.anchoredPosition = anchoredPosition;
+            }
+        }
+
+        private static void SetSizeDelta(RectTransform? rectTransform, Vector2 sizeDelta)
+        {
+            if (rectTransform != null)
+            {
+                rectTransform.sizeDelta = sizeDelta;
+            }
+        }
+
+        private static void SetText(TMP_Text? label, string value)
+        {
+            if (label == null || label.text == value)
+            {
+                return;
+            }
+
+            label.text = value;
         }
     }
 }

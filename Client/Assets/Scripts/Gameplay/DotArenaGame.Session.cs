@@ -62,12 +62,11 @@ namespace SampleClient.Gameplay
             }
             catch (Exception ex)
             {
-                var friendlyStatus = BuildFriendlyConnectionStatus(ex);
-                var friendlyMessage = BuildFriendlyConnectionMessage(ex);
+                var feedback = DotArenaMultiplayerFlow.BuildConnectionFailure(ex);
                 _flowState = FrontendFlowState.Entry;
                 _entryMenuState = EntryMenuState.MultiplayerAuth;
-                _status = friendlyStatus;
-                _eventMessage = friendlyMessage;
+                _status = feedback.Status;
+                _eventMessage = feedback.Message;
                 Debug.LogError($"[DotArena] Connect failed: {ex}");
                 await DisposeConnectionAsync();
                 _localMatch = null;
@@ -96,12 +95,17 @@ namespace SampleClient.Gameplay
             return ReturnToMainMenuAfterMatchAsync(preserveLoginState, _localPlayerId, true);
         }
 
-        private Task ReturnToMainMenuAfterMatchAsync(bool preserveLoginState, string winnerPlayerId, bool localPlayerWon)
+        private async Task ReturnToMainMenuAfterMatchAsync(bool preserveLoginState, string winnerPlayerId, bool localPlayerWon)
         {
             var sessionMode = _sessionMode;
             var localScore = GetLocalPlayerScoreValue();
             var authenticatedPlayerId = _authenticatedPlayerId;
             var localWinCount = _localWinCount;
+
+            if (_sessionMode == SessionMode.Multiplayer)
+            {
+                await NetworkSession.DisposeRealtimeAsync().ConfigureAwait(false);
+            }
 
             if (_sessionMode != SessionMode.Multiplayer)
             {
@@ -168,7 +172,6 @@ namespace SampleClient.Gameplay
                 _lastRewardSummary = null;
             }
 
-            return Task.CompletedTask;
         }
 
         private void BeginShutdown()
@@ -222,6 +225,7 @@ namespace SampleClient.Gameplay
             {
                 try
                 {
+                    await NetworkSession.DisposeRealtimeAsync().ConfigureAwait(false);
                     await NetworkSession.CancelMatchmakingAsync(_cts.Token).ConfigureAwait(false);
                     _status = "正在取消匹配";
                     _eventMessage = "等待服务器确认取消";
@@ -357,6 +361,7 @@ namespace SampleClient.Gameplay
 
             try
             {
+                await NetworkSession.DisposeRealtimeAsync().ConfigureAwait(false);
                 await NetworkSession.StartMatchmakingAsync(_cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -390,48 +395,6 @@ namespace SampleClient.Gameplay
         private string GetMenuLoginStatusText()
         {
             return DotArenaUiTextComposer.BuildMenuLoginStatusText(_hasAuthenticatedProfile, _authenticatedPlayerId, _localWinCount);
-        }
-
-        private static string BuildFriendlyConnectionStatus(Exception ex)
-        {
-            return IsServerUnavailableError(ex)
-                ? "服务器暂时不可用"
-                : "登录失败";
-        }
-
-        private static string BuildFriendlyConnectionMessage(Exception ex)
-        {
-            if (IsServerUnavailableError(ex))
-            {
-                return "服务器正在启动或房间服务暂时异常，请稍后重试。";
-            }
-
-            if (IsNetworkConnectError(ex))
-            {
-                return "无法连接到服务器，请检查网络或确认服务端已启动。";
-            }
-
-            return "登录过程中发生错误，请稍后重试。";
-        }
-
-        private static bool IsServerUnavailableError(Exception ex)
-        {
-            return ex is InvalidOperationException invalidOperationException &&
-                   invalidOperationException.Message.Contains("RPC failed", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsNetworkConnectError(Exception ex)
-        {
-            if (ex is TimeoutException)
-            {
-                return true;
-            }
-
-            var message = ex.Message;
-            return message.Contains("actively refused", StringComparison.OrdinalIgnoreCase) ||
-                   message.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase) ||
-                   message.Contains("Unable to connect", StringComparison.OrdinalIgnoreCase) ||
-                   message.Contains("连接", StringComparison.OrdinalIgnoreCase) && message.Contains("失败", StringComparison.OrdinalIgnoreCase);
         }
 
         private void ApplyLaunchOverrides()
@@ -482,6 +445,7 @@ namespace SampleClient.Gameplay
 
         private void ResetToModeSelect(string status, string eventMessage, string? toastMessage)
         {
+            _ = NetworkSession.DisposeRealtimeAsync();
             ResetSessionPresentation();
             _callbackInbox.Clear();
             _settlementSummary = null;

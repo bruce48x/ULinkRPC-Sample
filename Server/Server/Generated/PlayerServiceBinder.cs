@@ -14,9 +14,9 @@ namespace Server.Generated
     {
         private const int ServiceId = 1;
 
-        public static void Bind(RpcServiceRegistry registry, Func<LoginRequest, ValueTask<LoginReply>> loginAsyncHandler, Func<MatchmakingRequest, ValueTask> startMatchmakingAsyncHandler, Func<CancelMatchmakingRequest, ValueTask> cancelMatchmakingAsyncHandler, Func<InputMessage, ValueTask> submitInputHandler, Func<LogoutRequest, ValueTask> logoutAsyncHandler)
+        public static void Bind(RpcServiceRegistry registry, Func<LoginRequest, ValueTask<LoginReply>> loginAsyncHandler, Func<MatchmakingRequest, ValueTask> startMatchmakingAsyncHandler, Func<CancelMatchmakingRequest, ValueTask> cancelMatchmakingAsyncHandler, Func<RealtimeAttachRequest, ValueTask<RealtimeAttachReply>> attachRealtimeAsyncHandler, Func<InputMessage, ValueTask> submitInputHandler, Func<LogoutRequest, ValueTask> logoutAsyncHandler)
         {
-            BindFactory(registry, _ => new DelegateImpl(loginAsyncHandler, startMatchmakingAsyncHandler, cancelMatchmakingAsyncHandler, submitInputHandler, logoutAsyncHandler));
+            BindFactory(registry, _ => new DelegateImpl(loginAsyncHandler, startMatchmakingAsyncHandler, cancelMatchmakingAsyncHandler, attachRealtimeAsyncHandler, submitInputHandler, logoutAsyncHandler));
         }
 
         private sealed class DelegateImpl : IPlayerService
@@ -24,14 +24,16 @@ namespace Server.Generated
             private readonly Func<LoginRequest, ValueTask<LoginReply>> _loginAsyncHandler;
             private readonly Func<MatchmakingRequest, ValueTask> _startMatchmakingAsyncHandler;
             private readonly Func<CancelMatchmakingRequest, ValueTask> _cancelMatchmakingAsyncHandler;
+            private readonly Func<RealtimeAttachRequest, ValueTask<RealtimeAttachReply>> _attachRealtimeAsyncHandler;
             private readonly Func<InputMessage, ValueTask> _submitInputHandler;
             private readonly Func<LogoutRequest, ValueTask> _logoutAsyncHandler;
 
-            public DelegateImpl(Func<LoginRequest, ValueTask<LoginReply>> loginAsyncHandler, Func<MatchmakingRequest, ValueTask> startMatchmakingAsyncHandler, Func<CancelMatchmakingRequest, ValueTask> cancelMatchmakingAsyncHandler, Func<InputMessage, ValueTask> submitInputHandler, Func<LogoutRequest, ValueTask> logoutAsyncHandler)
+            public DelegateImpl(Func<LoginRequest, ValueTask<LoginReply>> loginAsyncHandler, Func<MatchmakingRequest, ValueTask> startMatchmakingAsyncHandler, Func<CancelMatchmakingRequest, ValueTask> cancelMatchmakingAsyncHandler, Func<RealtimeAttachRequest, ValueTask<RealtimeAttachReply>> attachRealtimeAsyncHandler, Func<InputMessage, ValueTask> submitInputHandler, Func<LogoutRequest, ValueTask> logoutAsyncHandler)
             {
                 _loginAsyncHandler = loginAsyncHandler ?? throw new ArgumentNullException(nameof(loginAsyncHandler));
                 _startMatchmakingAsyncHandler = startMatchmakingAsyncHandler ?? throw new ArgumentNullException(nameof(startMatchmakingAsyncHandler));
                 _cancelMatchmakingAsyncHandler = cancelMatchmakingAsyncHandler ?? throw new ArgumentNullException(nameof(cancelMatchmakingAsyncHandler));
+                _attachRealtimeAsyncHandler = attachRealtimeAsyncHandler ?? throw new ArgumentNullException(nameof(attachRealtimeAsyncHandler));
                 _submitInputHandler = submitInputHandler ?? throw new ArgumentNullException(nameof(submitInputHandler));
                 _logoutAsyncHandler = logoutAsyncHandler ?? throw new ArgumentNullException(nameof(logoutAsyncHandler));
             }
@@ -49,6 +51,11 @@ namespace Server.Generated
             public ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req)
             {
                 return _cancelMatchmakingAsyncHandler(req);
+            }
+
+            public ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req)
+            {
+                return _attachRealtimeAsyncHandler(req);
             }
 
             public ValueTask SubmitInput(InputMessage req)
@@ -104,6 +111,15 @@ namespace Server.Generated
                 var arg = server.Serializer.Deserialize<CancelMatchmakingRequest>(req.Payload.Memory)!;
                 await impl.CancelMatchmakingAsync(arg);
                 return RpcEnvelopeCodec.EncodeResponse(req.RequestId, RpcStatus.Ok, ReadOnlyMemory<byte>.Empty);
+            });
+
+            registry.Register(ServiceId, 6, async (server, req, ct) =>
+            {
+                var impl = server.GetOrAddScopedService(ServiceId, implFactory);
+                var arg = server.Serializer.Deserialize<RealtimeAttachRequest>(req.Payload.Memory)!;
+                var resp = await impl.AttachRealtimeAsync(arg);
+                using var payloadFrame = server.Serializer.SerializeFrame(resp);
+                return RpcEnvelopeCodec.EncodeResponse(req.RequestId, RpcStatus.Ok, payloadFrame.Memory);
             });
 
             registry.Register(ServiceId, 2, async (server, req, ct) =>

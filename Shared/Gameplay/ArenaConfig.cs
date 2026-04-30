@@ -16,7 +16,7 @@ namespace Shared.Gameplay
         public float PlayerCollisionRadius { get; set; } = 0.9f;
 
         [MemoryPackOrder(3)]
-        public float PlayerVisualRadius { get; set; } = 0.94f;
+        public float PlayerVisualRadius { get; set; } = 1.28f;
 
         [MemoryPackOrder(4)]
         public float PickupCollisionRadius { get; set; } = 0.75f;

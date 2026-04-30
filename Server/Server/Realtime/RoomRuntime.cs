@@ -1,10 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Contracts.Rooms;
-using Orleans.Contracts.Sessions;
 using Orleans.Contracts.Users;
 using Server.Services;
 using Shared.Gameplay;
 using Shared.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Server.Realtime;
 
@@ -14,9 +14,9 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
     private readonly Lock _gate = new();
     private readonly SessionDirectory _sessionDirectory;
-    private readonly IClusterClient _clusterClient;
     private readonly ArenaSimulation _simulation;
     private readonly string _roomId;
+    private readonly ILogger<RoomRuntime> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _loopTask;
     private bool _matchCommitted;
@@ -25,14 +25,14 @@ internal sealed class RoomRuntime : IAsyncDisposable
     {
         _roomId = room.RoomId;
         _sessionDirectory = services.GetRequiredService<SessionDirectory>();
-        _clusterClient = services.GetRequiredService<IClusterClient>();
+        _logger = services.GetRequiredService<ILogger<RoomRuntime>>();
         _simulation = new ArenaSimulation(new ArenaSimulationOptions
         {
             Arena = ArenaConfig.CreateDefault(),
             RespawnDelaySeconds = 5f,
             TargetParticipantCount = room.MaxPlayers,
             MinPlayersToStart = room.MaxPlayers,
-            EnableBots = false
+            EnableBots = true
         });
 
         foreach (var player in room.Players)
@@ -99,6 +99,7 @@ internal sealed class RoomRuntime : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            _logger.LogDebug("Room runtime {RoomId} dispose cancelled.", _roomId);
         }
         _cts.Dispose();
     }
@@ -128,6 +129,7 @@ internal sealed class RoomRuntime : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            _logger.LogDebug("Room runtime loop stopped for room {RoomId}.", _roomId);
         }
     }
 
@@ -136,14 +138,14 @@ internal sealed class RoomRuntime : IAsyncDisposable
         var registrations = _sessionDirectory.GetByRoom(_roomId);
         foreach (var registration in registrations)
         {
-            SafeInvoke(registration.Callback, callback => callback.OnWorldState(result.WorldState));
+            SafeInvoke(registration.GetRealtimePreferredCallback(), callback => callback.OnWorldState(result.WorldState));
         }
 
         foreach (var deadEvent in result.Deaths)
         {
             foreach (var registration in registrations)
             {
-                SafeInvoke(registration.Callback, callback => callback.OnPlayerDead(deadEvent));
+                SafeInvoke(registration.GetRealtimePreferredCallback(), callback => callback.OnPlayerDead(deadEvent));
             }
         }
 
@@ -154,36 +156,17 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
         foreach (var registration in registrations)
         {
-            SafeInvoke(registration.Callback, callback => callback.OnMatchEnd(result.MatchEnd));
+            SafeInvoke(registration.GetRealtimePreferredCallback(), callback => callback.OnMatchEnd(result.MatchEnd));
         }
     }
 
     private async Task PersistMatchEndAsync(ArenaStepResult result)
     {
-        await _clusterClient.GetGrain<IRoomGrain>(_roomId)
-            .CompleteAsync(new RoomMatchCompletion
-            {
-                RoomId = _roomId,
-                SettlementId = Guid.NewGuid().ToString("N"),
-                FinishedAtUtc = DateTime.UtcNow,
-                WinnerUserId = result.MatchEnd!.WinnerPlayerId,
-                Reason = "Match finished",
-                Results = result.WorldState.Players
-                    .OrderByDescending(player => player.Score)
-                    .Select((player, index) => new RoomSettlementEntry
-                    {
-                        UserId = player.PlayerId,
-                        Rank = index + 1,
-                        ScoreDelta = player.Score,
-                        IsWinner = string.Equals(player.PlayerId, result.MatchEnd.WinnerPlayerId, StringComparison.Ordinal)
-                    })
-                    .ToList()
-            })
-            .ConfigureAwait(false);
+        var clusterClient = Server.Runtime.ServerRuntime.GetRequiredService<IClusterClient>();
 
         foreach (var player in result.WorldState.Players)
         {
-            await _clusterClient.GetGrain<IUserGrain>(player.PlayerId)
+            await clusterClient.GetGrain<IUserGrain>(player.PlayerId)
                 .AddScoreAsync(player.Score)
                 .ConfigureAwait(false);
         }
@@ -191,32 +174,25 @@ internal sealed class RoomRuntime : IAsyncDisposable
         var registrations = _sessionDirectory.GetByRoom(_roomId);
         foreach (var registration in registrations)
         {
-            _sessionDirectory.Remove(registration.PlayerId);
-            await _clusterClient.GetGrain<IPlayerSessionGrain>(registration.PlayerId)
-                .ClearRoomAsync(new PlayerRoomClearRequest
-                {
-                    UserId = registration.PlayerId,
-                    RoomId = _roomId,
-                    ClearedAtUtc = DateTime.UtcNow,
-                    Reason = "Match finished"
-                })
-                .ConfigureAwait(false);
+            _sessionDirectory.ClearRoom(registration.PlayerId, _roomId);
         }
 
-        if (!string.IsNullOrWhiteSpace(result.MatchEnd.WinnerPlayerId))
+        var winnerPlayerId = result.MatchEnd?.WinnerPlayerId;
+        if (!string.IsNullOrWhiteSpace(winnerPlayerId))
         {
-            await _clusterClient.GetGrain<IUserGrain>(result.MatchEnd.WinnerPlayerId).AddWinAsync().ConfigureAwait(false);
+            await clusterClient.GetGrain<IUserGrain>(winnerPlayerId).AddWinAsync().ConfigureAwait(false);
         }
     }
 
-    private static void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
+    private void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
     {
         try
         {
             action(callback);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to push room event in room {RoomId}.", _roomId);
         }
     }
 }

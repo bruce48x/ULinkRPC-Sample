@@ -1,6 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
 using Orleans.Contracts.Rooms;
-using Orleans.Contracts.Sessions;
 using Shared.Interfaces;
 
 namespace Server.Realtime;
@@ -16,7 +14,7 @@ internal sealed class RoomRuntimeHost
         _services = services;
     }
 
-    public async Task EnsurePlayerJoinedAsync(RoomSnapshot room, string playerId)
+    public async Task EnsureRoomReadyAsync(RoomSnapshot room)
     {
         RoomRuntime runtime;
         lock (_gate)
@@ -28,23 +26,10 @@ internal sealed class RoomRuntimeHost
             }
         }
 
-        var roomGrain = _services.GetRequiredService<IClusterClient>().GetGrain<IRoomGrain>(room.RoomId);
-        var player = room.Players.FirstOrDefault(entry => string.Equals(entry.UserId, playerId, StringComparison.Ordinal));
-        if (player is not null)
+        foreach (var player in room.Players)
         {
-            await roomGrain.JoinAsync(new PlayerRoomAssignment
-            {
-                UserId = player.UserId,
-                RoomId = room.RoomId,
-                MatchId = room.MatchId,
-                SeatIndex = player.SeatIndex,
-                SessionToken = player.SessionToken,
-                ConnectionId = player.ConnectionId,
-                AssignedAtUtc = player.JoinedAtUtc
-            }).ConfigureAwait(false);
+            await runtime.AddOrUpdatePlayerAsync(player.UserId).ConfigureAwait(false);
         }
-
-        await runtime.AddOrUpdatePlayerAsync(playerId).ConfigureAwait(false);
     }
 
     public async Task SubmitInputAsync(string roomId, string playerId, InputMessage input)

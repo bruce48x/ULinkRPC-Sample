@@ -11,10 +11,16 @@ namespace SampleClient.Gameplay
     internal sealed class DotArenaNetworkSession
     {
         private readonly Action<Exception?> _onDisconnected;
-        private RpcClient? _connection;
-        private IPlayerService? _playerService;
+        private RpcClient? _controlConnection;
+        private IPlayerService? _controlPlayerService;
+        private RpcClient? _realtimeConnection;
+        private IPlayerService? _realtimePlayerService;
         private string _playerId = string.Empty;
         private string _token = string.Empty;
+        private string _realtimeRoomId = string.Empty;
+        private string _realtimeMatchId = string.Empty;
+        private bool _ignoreControlDisconnect;
+        private bool _ignoreRealtimeDisconnect;
 
         public DotArenaNetworkSession(Action<Exception?> onDisconnected)
         {
@@ -24,6 +30,10 @@ namespace SampleClient.Gameplay
         public bool IsConnected { get; private set; }
 
         public bool IsConnecting { get; private set; }
+
+        public bool IsRealtimeConnected { get; private set; }
+
+        public bool IsRealtimeConnecting { get; private set; }
 
         public async Task<LoginReply> ConnectAndLoginAsync(
             string host,
@@ -45,13 +55,13 @@ namespace SampleClient.Gameplay
                 var callbacks = new RpcClient.RpcCallbackBindings();
                 callbacks.Add(callback);
 
-                _connection = Rpc.WebSocketRpcClientFactory.Create(host, port, path, callbacks);
-                _connection.Disconnected += HandleDisconnected;
+                _controlConnection = Rpc.WebSocketRpcClientFactory.Create(host, port, path, callbacks);
+                _controlConnection.Disconnected += HandleControlDisconnected;
 
-                await _connection.ConnectAsync(cancellationToken);
+                await _controlConnection.ConnectAsync(cancellationToken);
 
-                _playerService = _connection.Api.Shared.Player;
-                var reply = await _playerService.LoginAsync(new LoginRequest
+                _controlPlayerService = _controlConnection.Api.Shared.Player;
+                var reply = await _controlPlayerService.LoginAsync(new LoginRequest
                 {
                     Account = account,
                     Password = password
@@ -76,22 +86,23 @@ namespace SampleClient.Gameplay
 
         public async Task SubmitInputAsync(InputMessage input)
         {
-            if (_playerService == null)
+            var playerService = _realtimePlayerService ?? _controlPlayerService;
+            if (playerService == null)
             {
                 return;
             }
 
-            await _playerService.SubmitInput(input);
+            await playerService.SubmitInput(input).ConfigureAwait(false);
         }
 
         public async Task StartMatchmakingAsync(CancellationToken cancellationToken = default)
         {
-            if (_playerService == null || string.IsNullOrWhiteSpace(_playerId))
+            if (_controlPlayerService == null || string.IsNullOrWhiteSpace(_playerId))
             {
                 return;
             }
 
-            await _playerService.StartMatchmakingAsync(new MatchmakingRequest
+            await _controlPlayerService.StartMatchmakingAsync(new MatchmakingRequest
             {
                 PlayerId = _playerId,
                 Token = _token
@@ -100,34 +111,106 @@ namespace SampleClient.Gameplay
 
         public async Task CancelMatchmakingAsync(CancellationToken cancellationToken = default)
         {
-            if (_playerService == null || string.IsNullOrWhiteSpace(_playerId))
+            if (_controlPlayerService == null || string.IsNullOrWhiteSpace(_playerId))
             {
                 return;
             }
 
-            await _playerService.CancelMatchmakingAsync(new CancelMatchmakingRequest
+            await _controlPlayerService.CancelMatchmakingAsync(new CancelMatchmakingRequest
             {
                 PlayerId = _playerId,
                 Token = _token
             }).ConfigureAwait(false);
         }
 
+        public async Task<bool> EnsureRealtimeConnectedAsync(
+            RealtimeConnectionInfo realtimeConnection,
+            IPlayerCallback callback,
+            CancellationToken cancellationToken)
+        {
+            if (realtimeConnection == null)
+            {
+                return false;
+            }
+
+            if (realtimeConnection.Transport != RealtimeTransportKind.Kcp)
+            {
+                return false;
+            }
+
+            if (IsRealtimeConnected &&
+                string.Equals(_realtimeRoomId, realtimeConnection.RoomId, StringComparison.Ordinal) &&
+                string.Equals(_realtimeMatchId, realtimeConnection.MatchId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (IsRealtimeConnecting &&
+                string.Equals(_realtimeRoomId, realtimeConnection.RoomId, StringComparison.Ordinal) &&
+                string.Equals(_realtimeMatchId, realtimeConnection.MatchId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            await DisposeRealtimeAsync().ConfigureAwait(false);
+
+            IsRealtimeConnecting = true;
+            _realtimeRoomId = realtimeConnection.RoomId ?? string.Empty;
+            _realtimeMatchId = realtimeConnection.MatchId ?? string.Empty;
+
+            try
+            {
+                var callbacks = new RpcClient.RpcCallbackBindings();
+                callbacks.Add(callback);
+
+                _realtimeConnection = Rpc.KcpRpcClientFactory.Create(realtimeConnection.Host, realtimeConnection.Port, callbacks);
+                _realtimeConnection.Disconnected += HandleRealtimeDisconnected;
+
+                await _realtimeConnection.ConnectAsync(cancellationToken).ConfigureAwait(false);
+
+                _realtimePlayerService = _realtimeConnection.Api.Shared.Player;
+                var reply = await _realtimePlayerService.AttachRealtimeAsync(new RealtimeAttachRequest
+                {
+                    PlayerId = _playerId,
+                    Token = string.IsNullOrWhiteSpace(realtimeConnection.SessionToken) ? _token : realtimeConnection.SessionToken,
+                    RoomId = realtimeConnection.RoomId ?? string.Empty,
+                    MatchId = realtimeConnection.MatchId ?? string.Empty
+                }).ConfigureAwait(false);
+
+                if (reply.Code != 0)
+                {
+                    await DisposeRealtimeAsync().ConfigureAwait(false);
+                    return false;
+                }
+
+                IsRealtimeConnected = true;
+                return true;
+            }
+            finally
+            {
+                IsRealtimeConnecting = false;
+            }
+        }
+
         public async Task DisposeAsync(bool logout = true)
         {
-            if (_connection == null)
+            await DisposeRealtimeAsync().ConfigureAwait(false);
+
+            if (_controlConnection == null)
             {
-                _playerService = null;
+                _controlPlayerService = null;
                 IsConnected = false;
                 IsConnecting = false;
                 return;
             }
 
-            var connection = _connection;
-            var playerService = _playerService;
+            var connection = _controlConnection;
+            var playerService = _controlPlayerService;
             var shouldLogout = logout && IsConnected && playerService != null;
 
-            _connection = null;
-            connection.Disconnected -= HandleDisconnected;
+            _controlConnection = null;
+            _ignoreControlDisconnect = true;
+            connection.Disconnected -= HandleControlDisconnected;
 
             try
             {
@@ -149,7 +232,8 @@ namespace SampleClient.Gameplay
             }
             finally
             {
-                _playerService = null;
+                _ignoreControlDisconnect = false;
+                _controlPlayerService = null;
                 _playerId = string.Empty;
                 _token = string.Empty;
                 IsConnected = false;
@@ -157,12 +241,66 @@ namespace SampleClient.Gameplay
             }
         }
 
-        private void HandleDisconnected(Exception? ex)
+        public async Task DisposeRealtimeAsync()
         {
+            if (_realtimeConnection == null)
+            {
+                _realtimePlayerService = null;
+                IsRealtimeConnected = false;
+                IsRealtimeConnecting = false;
+                _realtimeRoomId = string.Empty;
+                _realtimeMatchId = string.Empty;
+                return;
+            }
+
+            var connection = _realtimeConnection;
+            _realtimeConnection = null;
+            _ignoreRealtimeDisconnect = true;
+            connection.Disconnected -= HandleRealtimeDisconnected;
+
+            try
+            {
+                await connection.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _ignoreRealtimeDisconnect = false;
+                _realtimePlayerService = null;
+                IsRealtimeConnected = false;
+                IsRealtimeConnecting = false;
+                _realtimeRoomId = string.Empty;
+                _realtimeMatchId = string.Empty;
+            }
+        }
+
+        private void HandleControlDisconnected(Exception? ex)
+        {
+            if (_ignoreControlDisconnect)
+            {
+                return;
+            }
+
             IsConnected = false;
-            _playerService = null;
+            _controlPlayerService = null;
             _playerId = string.Empty;
             _token = string.Empty;
+            _onDisconnected(ex);
+        }
+
+        private void HandleRealtimeDisconnected(Exception? ex)
+        {
+            if (_ignoreRealtimeDisconnect)
+            {
+                return;
+            }
+
+            IsRealtimeConnected = false;
+            _realtimePlayerService = null;
+            _realtimeRoomId = string.Empty;
+            _realtimeMatchId = string.Empty;
             _onDisconnected(ex);
         }
     }

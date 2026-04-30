@@ -64,16 +64,16 @@ namespace SampleClient.Gameplay
             SetText(_matchmakingTitleText, snapshot.MatchmakingTitle);
             SetText(_matchmakingDetailText, snapshot.MatchmakingDetail);
             SetText(_matchmakingCancelButtonText, "取消匹配");
-            SetText(_lobbyTitleText, GetLobbyTabTitle(snapshot, _selectedLobbyTab));
+            SetText(_lobbyTitleText, _lobbyUi.GetLobbyTabTitle(snapshot));
             SetText(_lobbySummaryText, snapshot.MetaPlayerSummary);
-            SetText(_lobbyHighlightsText, _selectedLobbyTab == MetaTab.Lobby ? snapshot.MetaLobbyHighlights : string.Empty);
-            SetText(_lobbyQuickActionsText, GetLobbyQuickActionsText(snapshot, _selectedLobbyTab));
-            RefreshLobbyQuickActionButtons(snapshot, _selectedLobbyTab);
-            SetText(_lobbyDetailText, GetLobbyTabDetail(snapshot, _selectedLobbyTab));
+            SetText(_lobbyHighlightsText, _lobbyUi.GetLobbyHighlightsText(snapshot));
+            SetText(_lobbyQuickActionsText, _lobbyUi.GetLobbyQuickActionsText(snapshot));
+            _lobbyUi.RefreshLobbyQuickActionButtons(snapshot, _lobbyQuickActionButton1, _lobbyQuickActionButton1Text, _lobbyQuickActionButton2, _lobbyQuickActionButton2Text, _lobbyQuickActionButton3, _lobbyQuickActionButton3Text, _lobbyQuickActionButton4, _lobbyQuickActionButton4Text);
+            SetText(_lobbyDetailText, _lobbyUi.GetLobbyTabDetail(snapshot));
             SetText(_lobbyFooterText, snapshot.MetaFooterHint);
-            SetText(_lobbyPrimaryActionButtonText, GetLobbyPrimaryActionLabel(snapshot, _selectedLobbyTab));
-            SetText(_lobbySecondaryActionButtonText, GetLobbySecondaryActionLabel(snapshot, _selectedLobbyTab));
-            ApplyLobbyActionLayout(snapshot);
+            SetText(_lobbyPrimaryActionButtonText, _lobbyUi.GetLobbyPrimaryActionLabel(snapshot));
+            SetText(_lobbySecondaryActionButtonText, _lobbyUi.GetLobbySecondaryActionLabel(snapshot));
+            _lobbyUi.ApplyLobbyActionLayout(snapshot, _lobbyPanel?.GetComponent<RectTransform>(), _lobbyDetailText?.rectTransform, _lobbyPrimaryActionButton?.GetComponent<RectTransform>(), _lobbySecondaryActionButton?.GetComponent<RectTransform>(), _lobbyFooterText?.rectTransform);
             SetText(_multiplayerSubtitleText, "联机登录");
             SetText(_accountLabelText, "账号");
             SetText(_passwordLabelText, "密码");
@@ -89,14 +89,14 @@ namespace SampleClient.Gameplay
             if (_matchButton != null) _matchButton.interactable = !snapshot.IsBusy;
             if (_backButton != null) _backButton.interactable = !snapshot.IsBusy;
             if (_matchmakingCancelButton != null) _matchmakingCancelButton.interactable = !snapshot.IsBusy;
-            if (_lobbyProfileButton != null) _lobbyProfileButton.interactable = !snapshot.IsBusy && _selectedLobbyTab != MetaTab.Lobby;
-            if (_lobbyTasksButton != null) _lobbyTasksButton.interactable = !snapshot.IsBusy && _selectedLobbyTab != MetaTab.Tasks;
-            if (_lobbyShopButton != null) _lobbyShopButton.interactable = !snapshot.IsBusy && _selectedLobbyTab != MetaTab.Shop;
-            if (_lobbyRecordsButton != null) _lobbyRecordsButton.interactable = !snapshot.IsBusy && _selectedLobbyTab != MetaTab.Records;
-            if (_lobbyLeaderboardButton != null) _lobbyLeaderboardButton.interactable = !snapshot.IsBusy && _selectedLobbyTab != MetaTab.Leaderboard;
-            if (_lobbySettingsButton != null) _lobbySettingsButton.interactable = !snapshot.IsBusy && _selectedLobbyTab != MetaTab.Settings;
-            if (_lobbyPrimaryActionButton != null) _lobbyPrimaryActionButton.gameObject.SetActive(HasLobbyPrimaryAction(snapshot, _selectedLobbyTab));
-            if (_lobbySecondaryActionButton != null) _lobbySecondaryActionButton.gameObject.SetActive(HasLobbySecondaryAction(snapshot, _selectedLobbyTab));
+            if (_lobbyProfileButton != null) _lobbyProfileButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Lobby);
+            if (_lobbyTasksButton != null) _lobbyTasksButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Tasks);
+            if (_lobbyShopButton != null) _lobbyShopButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Shop);
+            if (_lobbyRecordsButton != null) _lobbyRecordsButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Records);
+            if (_lobbyLeaderboardButton != null) _lobbyLeaderboardButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Leaderboard);
+            if (_lobbySettingsButton != null) _lobbySettingsButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Settings);
+            if (_lobbyPrimaryActionButton != null) _lobbyPrimaryActionButton.gameObject.SetActive(_lobbyUi.HasLobbyPrimaryAction());
+            if (_lobbySecondaryActionButton != null) _lobbySecondaryActionButton.gameObject.SetActive(_lobbyUi.HasLobbySecondaryAction());
             if (_lobbyPrimaryActionButton != null) _lobbyPrimaryActionButton.interactable = !snapshot.IsBusy;
             if (_lobbySecondaryActionButton != null) _lobbySecondaryActionButton.interactable = !snapshot.IsBusy;
             if (_lobbyQuickActionsText != null) _lobbyQuickActionsText.gameObject.SetActive(!string.IsNullOrWhiteSpace(_lobbyQuickActionsText.text));
@@ -127,74 +127,6 @@ namespace SampleClient.Gameplay
             if (_passwordInputField != null && !_passwordInputField.isFocused && _passwordInputField.text != password)
             {
                 _passwordInputField.SetTextWithoutNotify(password);
-            }
-        }
-
-        private void ApplyLobbyActionLayout(in DotArenaSceneUiSnapshot snapshot)
-        {
-            var isMultiplayerLobby = snapshot.EntryMenuState == EntryMenuState.MultiplayerLobby &&
-                                     snapshot.SessionMode == SessionMode.Multiplayer;
-
-            if (isMultiplayerLobby)
-            {
-                ApplyMultiplayerLobbyActionLayout();
-                return;
-            }
-
-            SetAnchoredPosition(_lobbyDetailText?.rectTransform, new Vector2(0f, -326f));
-            SetSizeDelta(_lobbyDetailText?.rectTransform, new Vector2(980f, 290f));
-            SetAnchoredPosition(_lobbyPrimaryActionButton?.GetComponent<RectTransform>(), new Vector2(-120f, -650f));
-            SetAnchoredPosition(_lobbySecondaryActionButton?.GetComponent<RectTransform>(), new Vector2(120f, -650f));
-            SetAnchoredPosition(_lobbyFooterText?.rectTransform, new Vector2(0f, -708f));
-            SetSizeDelta(_lobbyFooterText?.rectTransform, new Vector2(980f, 24f));
-        }
-
-        private void ApplyMultiplayerLobbyActionLayout()
-        {
-            var panelRect = _lobbyPanel?.GetComponent<RectTransform>();
-            var primaryRect = _lobbyPrimaryActionButton?.GetComponent<RectTransform>();
-            var secondaryRect = _lobbySecondaryActionButton?.GetComponent<RectTransform>();
-            var detailRect = _lobbyDetailText?.rectTransform;
-            var footerRect = _lobbyFooterText?.rectTransform;
-            if (panelRect == null || primaryRect == null || secondaryRect == null || detailRect == null || footerRect == null)
-            {
-                return;
-            }
-
-            var panelHeight = panelRect.rect.height;
-            var footerHeight = footerRect.sizeDelta.y > 0f ? footerRect.sizeDelta.y : 24f;
-            var buttonHeight = Mathf.Max(primaryRect.sizeDelta.y, secondaryRect.sizeDelta.y, 42f);
-            const float detailTop = 238f;
-            const float detailGap = 18f;
-            const float buttonGap = 24f;
-            const float bottomPadding = 30f;
-            const float buttonXOffset = 120f;
-
-            var footerTop = panelHeight - footerHeight - bottomPadding;
-            var buttonTop = footerTop - buttonGap - buttonHeight;
-            var detailHeight = Mathf.Max(84f, buttonTop - detailTop - detailGap);
-
-            SetAnchoredPosition(detailRect, new Vector2(0f, -detailTop));
-            SetSizeDelta(detailRect, new Vector2(980f, detailHeight));
-            SetAnchoredPosition(primaryRect, new Vector2(-buttonXOffset, -buttonTop));
-            SetAnchoredPosition(secondaryRect, new Vector2(buttonXOffset, -buttonTop));
-            SetAnchoredPosition(footerRect, new Vector2(0f, -footerTop));
-            SetSizeDelta(footerRect, new Vector2(980f, footerHeight));
-        }
-
-        private static void SetAnchoredPosition(RectTransform? rectTransform, Vector2 anchoredPosition)
-        {
-            if (rectTransform != null)
-            {
-                rectTransform.anchoredPosition = anchoredPosition;
-            }
-        }
-
-        private static void SetSizeDelta(RectTransform? rectTransform, Vector2 sizeDelta)
-        {
-            if (rectTransform != null)
-            {
-                rectTransform.sizeDelta = sizeDelta;
             }
         }
     }

@@ -3,6 +3,7 @@ using Orleans.Contracts.Rooms;
 using Orleans.Contracts.Sessions;
 using Server.Realtime;
 using Shared.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Server.Services;
 
@@ -13,15 +14,18 @@ internal sealed class MatchmakingMonitor
     private readonly IClusterClient _clusterClient;
     private readonly SessionDirectory _sessionDirectory;
     private readonly RoomRuntimeHost _roomRuntimeHost;
+    private readonly ILogger<MatchmakingMonitor> _logger;
 
     public MatchmakingMonitor(
         IClusterClient clusterClient,
         SessionDirectory sessionDirectory,
-        RoomRuntimeHost roomRuntimeHost)
+        RoomRuntimeHost roomRuntimeHost,
+        ILogger<MatchmakingMonitor> logger)
     {
         _clusterClient = clusterClient;
         _sessionDirectory = sessionDirectory;
         _roomRuntimeHost = roomRuntimeHost;
+        _logger = logger;
     }
 
     public async Task WatchForRoomAssignmentAsync(string playerId, CancellationToken cancellationToken)
@@ -34,17 +38,22 @@ internal sealed class MatchmakingMonitor
             var snapshot = await sessionGrain.GetSnapshotAsync().ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(snapshot.CurrentRoomId))
             {
-                _sessionDirectory.AssignRoom(playerId, snapshot.CurrentRoomId);
-
                 var room = await _clusterClient.GetGrain<IRoomGrain>(snapshot.CurrentRoomId)
                     .GetSnapshotAsync()
                     .ConfigureAwait(false);
-                await _roomRuntimeHost.EnsurePlayerJoinedAsync(room, playerId).ConfigureAwait(false);
+                var player = room.Players.FirstOrDefault(entry => string.Equals(entry.UserId, playerId, StringComparison.Ordinal));
+                _sessionDirectory.AssignRoom(
+                    playerId,
+                    snapshot.CurrentRoomId,
+                    snapshot.CurrentMatchId,
+                    player?.SeatIndex ?? -1);
+
+                await _roomRuntimeHost.EnsureRoomReadyAsync(room).ConfigureAwait(false);
 
                 var registration = _sessionDirectory.Get(playerId);
                 if (registration is not null)
                 {
-                    SafeInvoke(registration.Callback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
+                    SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
                     {
                         State = Shared.Interfaces.MatchmakingState.Matched,
                         QueueSize = room.MemberCount,
@@ -64,7 +73,7 @@ internal sealed class MatchmakingMonitor
             var callbackRegistration = _sessionDirectory.Get(playerId);
             if (callbackRegistration is not null)
             {
-                SafeInvoke(callbackRegistration.Callback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
+                SafeInvoke(callbackRegistration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
                 {
                     State = position >= 0 ? Shared.Interfaces.MatchmakingState.Queued : Shared.Interfaces.MatchmakingState.Searching,
                     QueuePosition = position >= 0 ? position + 1 : 0,
@@ -80,14 +89,15 @@ internal sealed class MatchmakingMonitor
         }
     }
 
-    private static void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
+    private void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
     {
         try
         {
             action(callback);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to push monitor matchmaking callback.");
         }
     }
 }

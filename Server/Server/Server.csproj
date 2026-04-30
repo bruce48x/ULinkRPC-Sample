@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="ULinkRPC.Server" Version="0.11.7" />
+    <PackageReference Include="ULinkRPC.Transport.Kcp" Version="0.11.3" />
     <PackageReference Include="ULinkRPC.Transport.WebSocket" Version="0.11.3" />
     <PackageReference Include="ULinkRPC.Serializer.MemoryPack" Version="0.11.0" />
     <PackageReference Include="Microsoft.Orleans.Client" Version="10.0.0" />

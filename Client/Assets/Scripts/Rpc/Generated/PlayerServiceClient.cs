@@ -16,6 +16,7 @@ namespace Rpc.Generated
         private static readonly RpcMethod<LoginRequest, LoginReply> loginAsyncRpcMethod = new(ServiceId, 1);
         private static readonly RpcMethod<MatchmakingRequest, RpcVoid> startMatchmakingAsyncRpcMethod = new(ServiceId, 4);
         private static readonly RpcMethod<CancelMatchmakingRequest, RpcVoid> cancelMatchmakingAsyncRpcMethod = new(ServiceId, 5);
+        private static readonly RpcMethod<RealtimeAttachRequest, RealtimeAttachReply> attachRealtimeAsyncRpcMethod = new(ServiceId, 6);
         private static readonly RpcMethod<InputMessage, RpcVoid> submitInputRpcMethod = new(ServiceId, 2);
         private static readonly RpcMethod<LogoutRequest, RpcVoid> logoutAsyncRpcMethod = new(ServiceId, 3);
 
@@ -51,6 +52,16 @@ namespace Rpc.Generated
         public async ValueTask CancelMatchmakingAsync(CancelMatchmakingRequest req, CancellationToken ct)
         {
             await _client.CallAsync(cancelMatchmakingAsyncRpcMethod, req, ct);
+        }
+
+        public ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req)
+        {
+            return AttachRealtimeAsync(req, CancellationToken.None);
+        }
+
+        public ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req, CancellationToken ct)
+        {
+            return _client.CallAsync(attachRealtimeAsyncRpcMethod, req, ct);
         }
 
         public async ValueTask SubmitInput(InputMessage req)

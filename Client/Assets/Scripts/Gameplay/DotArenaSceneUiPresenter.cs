@@ -130,7 +130,7 @@ namespace SampleClient.Gameplay
         private TMP_InputField? _accountInputField;
         private TMP_InputField? _passwordInputField;
         private TMP_FontAsset? _tmpFontAsset;
-        private MetaTab _selectedLobbyTab = MetaTab.Lobby;
+        private readonly DotArenaSceneLobbyUiCoordinator _lobbyUi = new();
 
         public bool HasSceneUi => _sceneUiRoot != null;
 
@@ -282,58 +282,19 @@ namespace SampleClient.Gameplay
                 _matchmakingCancelButton.onClick.AddListener(() => onCancelMatchmakingRequested());
             }
 
-            if (_lobbyProfileButton != null)
-            {
-                _lobbyProfileButton.onClick.RemoveAllListeners();
-                _lobbyProfileButton.onClick.AddListener(() => _selectedLobbyTab = MetaTab.Lobby);
-            }
+            _lobbyUi.BindLobbyTabButton(_lobbyProfileButton, MetaTab.Lobby);
+            _lobbyUi.BindLobbyTabButton(_lobbyTasksButton, MetaTab.Tasks);
+            _lobbyUi.BindLobbyTabButton(_lobbyShopButton, MetaTab.Shop);
+            _lobbyUi.BindLobbyTabButton(_lobbyRecordsButton, MetaTab.Records);
+            _lobbyUi.BindLobbyTabButton(_lobbyLeaderboardButton, MetaTab.Leaderboard);
+            _lobbyUi.BindLobbyTabButton(_lobbySettingsButton, MetaTab.Settings);
 
-            if (_lobbyTasksButton != null)
-            {
-                _lobbyTasksButton.onClick.RemoveAllListeners();
-                _lobbyTasksButton.onClick.AddListener(() => _selectedLobbyTab = MetaTab.Tasks);
-            }
+            _lobbyUi.BindLobbyQuickActionButton(_lobbyQuickActionButton1, 0);
+            _lobbyUi.BindLobbyQuickActionButton(_lobbyQuickActionButton2, 1);
+            _lobbyUi.BindLobbyQuickActionButton(_lobbyQuickActionButton3, 2);
+            _lobbyUi.BindLobbyQuickActionButton(_lobbyQuickActionButton4, 3);
 
-            if (_lobbyShopButton != null)
-            {
-                _lobbyShopButton.onClick.RemoveAllListeners();
-                _lobbyShopButton.onClick.AddListener(() => _selectedLobbyTab = MetaTab.Shop);
-            }
-
-            if (_lobbyRecordsButton != null)
-            {
-                _lobbyRecordsButton.onClick.RemoveAllListeners();
-                _lobbyRecordsButton.onClick.AddListener(() => _selectedLobbyTab = MetaTab.Records);
-            }
-
-            if (_lobbyLeaderboardButton != null)
-            {
-                _lobbyLeaderboardButton.onClick.RemoveAllListeners();
-                _lobbyLeaderboardButton.onClick.AddListener(() => _selectedLobbyTab = MetaTab.Leaderboard);
-            }
-
-            if (_lobbySettingsButton != null)
-            {
-                _lobbySettingsButton.onClick.RemoveAllListeners();
-                _lobbySettingsButton.onClick.AddListener(() => _selectedLobbyTab = MetaTab.Settings);
-            }
-
-            BindQuickActionButton(_lobbyQuickActionButton1, 0);
-            BindQuickActionButton(_lobbyQuickActionButton2, 1);
-            BindQuickActionButton(_lobbyQuickActionButton3, 2);
-            BindQuickActionButton(_lobbyQuickActionButton4, 3);
-
-            if (_lobbyPrimaryActionButton != null)
-            {
-                _lobbyPrimaryActionButton.onClick.RemoveAllListeners();
-                _lobbyPrimaryActionButton.onClick.AddListener(() => onLobbyActionRequested(_selectedLobbyTab, true));
-            }
-
-            if (_lobbySecondaryActionButton != null)
-            {
-                _lobbySecondaryActionButton.onClick.RemoveAllListeners();
-                _lobbySecondaryActionButton.onClick.AddListener(() => onLobbyActionRequested(_selectedLobbyTab, false));
-            }
+            _lobbyUi.BindLobbyActionButtons(_lobbyPrimaryActionButton, _lobbySecondaryActionButton, onLobbyActionRequested);
 
             if (_accountInputField != null)
             {
@@ -359,27 +320,6 @@ namespace SampleClient.Gameplay
                 _settlementSecondaryButton.onClick.AddListener(() => onReturnToLobbyRequested());
             }
         }
-
-
-
-
-
-        private static void AppendLobbyQuickAction(ref string actionLine, string label)
-        {
-            if (string.IsNullOrWhiteSpace(label))
-            {
-                return;
-            }
-
-            if (actionLine.Length > 0)
-            {
-                actionLine += "  |  ";
-            }
-
-            actionLine += label;
-        }
-
-
 
     }
 }

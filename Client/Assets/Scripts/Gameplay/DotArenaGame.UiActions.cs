@@ -6,122 +6,52 @@ namespace SampleClient.Gameplay
     {
         public void OnUiSinglePlayerSelected()
         {
-            if (IsUiBusy)
-            {
-                return;
-            }
-
-            _singlePlayerStartRequested = true;
+            UiSurface.OnUiSinglePlayerSelected();
         }
 
         public void OnUiMultiplayerSelected()
         {
-            if (IsUiBusy)
-            {
-                return;
-            }
-
-            _entryMenuState = EntryMenuState.MultiplayerAuth;
-            _status = "Enter account credentials";
-            _eventMessage = "点击匹配开始联机";
-            RefreshSceneUi();
+            UiSurface.OnUiMultiplayerSelected();
         }
 
         public void OnUiBackToModeSelect()
         {
-            if (IsUiBusy)
-            {
-                return;
-            }
-
-            _entryMenuState = EntryMenuState.ModeSelect;
-            _status = "请选择模式";
-            _eventMessage = "请选择单机或联机";
-            RefreshSceneUi();
+            UiSurface.OnUiBackToModeSelect();
         }
 
         public void OnUiCancelMatchmakingRequested()
         {
-            if (_flowState != FrontendFlowState.Matchmaking || HasPendingUiRequest)
-            {
-                return;
-            }
-
-            _pendingUiRequest = PendingUiRequest.CancelMatchmaking;
-            _status = "正在取消匹配";
-            _eventMessage = "正在返回联机大厅";
-            RefreshSceneUi();
-            _ = CancelMatchmakingAsync();
+            UiSurface.OnUiCancelMatchmakingRequested();
         }
 
         public void OnUiConnectRequested()
         {
-            if (IsUiBusy)
-            {
-                return;
-            }
-
-            _pendingUiRequest = PendingUiRequest.Login;
-            _flowState = FrontendFlowState.Entry;
-            _entryMenuState = EntryMenuState.MultiplayerAuth;
-            _status = $"正在连接 {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}";
-            _eventMessage = "正在登录联机账号";
-            RefreshSceneUi();
-            _ = ConnectAsync();
+            UiSurface.OnUiConnectRequested();
         }
 
         public void OnUiRematchRequested()
         {
-            if (_flowState != FrontendFlowState.Settlement || IsUiBusy)
-            {
-                return;
-            }
-
-            _rematchRequested = true;
+            UiSurface.OnUiRematchRequested();
         }
 
         public void OnUiReturnToLobbyRequested()
         {
-            if (_flowState != FrontendFlowState.Settlement || IsUiBusy)
-            {
-                return;
-            }
-
-            _returnToLobbyRequested = true;
+            UiSurface.OnUiReturnToLobbyRequested();
         }
 
         public void OnUiAccountChanged(string value)
         {
-            _account = value;
+            UiSurface.OnUiAccountChanged(value);
         }
 
         public void OnUiPasswordChanged(string value)
         {
-            _password = value;
+            UiSurface.OnUiPasswordChanged(value);
         }
 
         private void OnUiLobbyActionRequested(MetaTab tab, bool isPrimaryAction)
         {
-            if (_metaState == null || _flowState == FrontendFlowState.Matchmaking || HasPendingUiRequest)
-            {
-                return;
-            }
-
-            switch (tab)
-            {
-                case MetaTab.Lobby:
-                    HandleLobbyPresetAction(isPrimaryAction);
-                    break;
-                case MetaTab.Tasks:
-                    HandleTaskLobbyAction(isPrimaryAction);
-                    break;
-                case MetaTab.Shop:
-                    HandleShopLobbyAction(isPrimaryAction);
-                    break;
-                case MetaTab.Settings:
-                    HandleSettingsLobbyAction(isPrimaryAction);
-                    break;
-            }
+            UiSurface.OnUiLobbyActionRequested(tab, isPrimaryAction);
         }
     }
 }

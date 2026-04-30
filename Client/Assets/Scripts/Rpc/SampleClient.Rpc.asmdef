@@ -7,6 +7,7 @@
     "ULinkRPC.Client",
     "ULinkRPC.Core",
     "ULinkRPC.Serializer.MemoryPack",
+    "ULinkRPC.Transport.Kcp",
     "ULinkRPC.Transport.WebSocket"
   ],
   "includePlatforms": [],

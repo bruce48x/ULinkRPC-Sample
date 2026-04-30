@@ -157,7 +157,19 @@ namespace SampleClient.Gameplay
                 QueuePosition = source.QueuePosition,
                 QueueSize = source.QueueSize,
                 RoomCapacity = source.RoomCapacity,
-                MatchedPlayerCount = source.MatchedPlayerCount
+                MatchedPlayerCount = source.MatchedPlayerCount,
+                RealtimeConnection = source.RealtimeConnection is null
+                    ? null
+                    : new RealtimeConnectionInfo
+                    {
+                        Transport = source.RealtimeConnection.Transport,
+                        Host = source.RealtimeConnection.Host,
+                        Port = source.RealtimeConnection.Port,
+                        Path = source.RealtimeConnection.Path,
+                        RoomId = source.RealtimeConnection.RoomId,
+                        MatchId = source.RealtimeConnection.MatchId,
+                        SessionToken = source.RealtimeConnection.SessionToken
+                    }
             };
         }
     }
