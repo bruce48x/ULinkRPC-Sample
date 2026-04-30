@@ -2,9 +2,9 @@ using Orleans.Contracts.Users;
 using Orleans.Contracts;
 using Orleans.Contracts.Sessions;
 using Server.Realtime;
-using Server.Runtime;
 using Shared.Interfaces;
 using Microsoft.Extensions.Logging;
+using ULinkHost.Runtime;
 
 namespace Server.Services;
 
@@ -26,12 +26,12 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
     public PlayerService(IPlayerCallback callback)
     {
         _callback = callback;
-        _clusterClient = ServerRuntime.GetRequiredService<IClusterClient>();
-        _sessionDirectory = ServerRuntime.GetRequiredService<SessionDirectory>();
-        _gatewayMatchmaking = ServerRuntime.GetRequiredService<GatewayMatchmakingService>();
-        _gatewayNodeIdentity = ServerRuntime.GetRequiredService<GatewayNodeIdentity>();
-        _roomRuntimeHost = ServerRuntime.GetRequiredService<RoomRuntimeHost>();
-        _logger = ServerRuntime.GetRequiredService<ILogger<PlayerService>>();
+        _clusterClient = ULinkHostRuntime.GetRequiredService<IClusterClient>();
+        _sessionDirectory = ULinkHostRuntime.GetRequiredService<SessionDirectory>();
+        _gatewayMatchmaking = ULinkHostRuntime.GetRequiredService<GatewayMatchmakingService>();
+        _gatewayNodeIdentity = ULinkHostRuntime.GetRequiredService<GatewayNodeIdentity>();
+        _roomRuntimeHost = ULinkHostRuntime.GetRequiredService<RoomRuntimeHost>();
+        _logger = ULinkHostRuntime.GetRequiredService<ILogger<PlayerService>>();
     }
 
     public async ValueTask DisposeAsync()

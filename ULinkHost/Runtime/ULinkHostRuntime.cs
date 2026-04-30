@@ -1,13 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Server.Runtime;
+namespace ULinkHost.Runtime;
 
-internal static class ServerRuntime
+public static class ULinkHostRuntime
 {
     private static IServiceProvider? _services;
 
     public static IServiceProvider Services =>
-        _services ?? throw new InvalidOperationException("Server services have not been initialized.");
+        _services ?? throw new InvalidOperationException("ULinkHost services have not been initialized.");
 
     public static T GetRequiredService<T>() where T : notnull
     {

@@ -1,12 +1,13 @@
 using Microsoft.Extensions.Configuration;
 using Orleans.Contracts;
 using Shared.Interfaces;
+using ULinkHost.Transport;
 
 namespace Server.Services;
 
 internal sealed class GatewayNodeIdentity
 {
-    public GatewayNodeIdentity(IConfiguration configuration, GatewayRealtimeOptions realtimeOptions)
+    public GatewayNodeIdentity(IConfiguration configuration, RealtimeServerOptions realtimeOptions)
     {
         InstanceId = configuration["Gateway:NodeId"] ?? string.Empty;
         if (string.IsNullOrWhiteSpace(InstanceId))
@@ -35,13 +36,6 @@ internal sealed class GatewayNodeIdentity
             && string.Equals(gateway.InstanceId, InstanceId, StringComparison.Ordinal);
     }
 
-    private static string RealtimeTransportToString(RealtimeTransportKind transport)
-    {
-        return transport switch
-        {
-            RealtimeTransportKind.Kcp => "kcp",
-            RealtimeTransportKind.WebSocket => "websocket",
-            _ => "unknown"
-        };
-    }
+    private static string RealtimeTransportToString(string transport) =>
+        string.IsNullOrWhiteSpace(transport) ? "unknown" : transport.ToLowerInvariant();
 }

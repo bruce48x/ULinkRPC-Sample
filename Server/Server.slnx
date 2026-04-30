@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="../Shared/Shared.csproj" />
+  <Project Path="../ULinkHost/ULinkHost.csproj" />
+  <Project Path="../ULinkHost.Tool/ULinkHost.Tool.csproj" />
   <Project Path="Server/Server.csproj" />
   <Project Path="Orleans.Contracts/Orleans.Contracts.csproj" />
   <Project Path="Silo/Silo.csproj" />

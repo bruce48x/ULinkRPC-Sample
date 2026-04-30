@@ -5,6 +5,7 @@ using Server.Services;
 using Shared.Gameplay;
 using Shared.Interfaces;
 using Microsoft.Extensions.Logging;
+using ULinkHost.Runtime;
 
 namespace Server.Realtime;
 
@@ -174,7 +175,7 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
     private async Task PersistMatchEndAsync(ArenaStepResult result)
     {
-        var clusterClient = Server.Runtime.ServerRuntime.GetRequiredService<IClusterClient>();
+        var clusterClient = ULinkHostRuntime.GetRequiredService<IClusterClient>();
 
         foreach (var player in result.WorldState.Players)
         {
