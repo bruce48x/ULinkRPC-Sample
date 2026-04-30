@@ -1,4 +1,5 @@
 using Orleans;
+using Orleans.Contracts;
 using Orleans.Contracts.Sessions;
 
 namespace Orleans.Contracts.Rooms;
@@ -34,6 +35,9 @@ public sealed class RoomCreateRequest
 
     [Id(5)]
     public List<PlayerRoomAssignment> Players { get; set; } = [];
+
+    [Id(6)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }
 
 [GenerateSerializer]
@@ -200,6 +204,9 @@ public sealed class RoomSnapshot
 
     [Id(16)]
     public int CapacityRemaining { get; set; }
+
+    [Id(17)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }
 
 [GenerateSerializer]
@@ -283,6 +290,9 @@ public sealed class RoomState
 
     [Id(12)]
     public string Message { get; set; } = "";
+
+    [Id(13)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }
 
 [GenerateSerializer]

@@ -1,4 +1,5 @@
 using Orleans;
+using Orleans.Contracts;
 using Orleans.Contracts.Sessions;
 using Orleans.Runtime;
 
@@ -27,6 +28,7 @@ public sealed class PlayerSessionGrain : Grain, IPlayerSessionGrain
         _state.State.LastConnectedAtUtc = attachedAtUtc;
         _state.State.LastHeartbeatAtUtc = attachedAtUtc;
         _state.State.ReconnectToken = EnsureReconnectToken(_state.State.ReconnectToken);
+        _state.State.ControlGateway = CloneGateway(request.ControlGateway);
 
         await _state.WriteStateAsync();
         return BuildSnapshot();
@@ -80,6 +82,7 @@ public sealed class PlayerSessionGrain : Grain, IPlayerSessionGrain
         _state.State.LastConnectedAtUtc = assignedAtUtc;
         _state.State.LastHeartbeatAtUtc = assignedAtUtc;
         _state.State.ReconnectToken = EnsureReconnectToken(_state.State.ReconnectToken);
+        _state.State.RuntimeGateway = CloneGateway(request.RuntimeGateway);
 
         await _state.WriteStateAsync();
         return BuildSnapshot();
@@ -186,7 +189,9 @@ public sealed class PlayerSessionGrain : Grain, IPlayerSessionGrain
             LastConnectedAtUtc = _state.State.LastConnectedAtUtc,
             LastDisconnectedAtUtc = _state.State.LastDisconnectedAtUtc,
             LastHeartbeatAtUtc = _state.State.LastHeartbeatAtUtc,
-            ReconnectToken = _state.State.ReconnectToken
+            ReconnectToken = _state.State.ReconnectToken,
+            ControlGateway = CloneGateway(_state.State.ControlGateway),
+            RuntimeGateway = CloneGateway(_state.State.RuntimeGateway)
         };
     }
 
@@ -208,5 +213,22 @@ public sealed class PlayerSessionGrain : Grain, IPlayerSessionGrain
     private static string EnsureReconnectToken(string value)
     {
         return string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString("N") : value;
+    }
+
+    private static GatewayEndpointDescriptor CloneGateway(GatewayEndpointDescriptor? gateway)
+    {
+        if (gateway is null)
+        {
+            return new GatewayEndpointDescriptor();
+        }
+
+        return new GatewayEndpointDescriptor
+        {
+            InstanceId = gateway.InstanceId,
+            Transport = gateway.Transport,
+            Host = gateway.Host,
+            Port = gateway.Port,
+            Path = gateway.Path
+        };
     }
 }

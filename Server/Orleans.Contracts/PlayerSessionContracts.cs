@@ -1,4 +1,5 @@
 using Orleans;
+using Orleans.Contracts;
 
 namespace Orleans.Contracts.Sessions;
 
@@ -28,6 +29,9 @@ public sealed class PlayerSessionAttachRequest
 
     [Id(3)]
     public DateTime AttachedAtUtc { get; set; }
+
+    [Id(4)]
+    public GatewayEndpointDescriptor ControlGateway { get; set; } = new();
 }
 
 [GenerateSerializer]
@@ -88,6 +92,9 @@ public sealed class PlayerRoomAssignment
 
     [Id(6)]
     public DateTime AssignedAtUtc { get; set; }
+
+    [Id(7)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }
 
 [GenerateSerializer]
@@ -182,6 +189,12 @@ public sealed class PlayerSessionSnapshot
 
     [Id(15)]
     public string ReconnectToken { get; set; } = "";
+
+    [Id(16)]
+    public GatewayEndpointDescriptor ControlGateway { get; set; } = new();
+
+    [Id(17)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }
 
 [GenerateSerializer]
@@ -234,4 +247,10 @@ public sealed class PlayerSessionState
 
     [Id(15)]
     public string ReconnectToken { get; set; } = "";
+
+    [Id(16)]
+    public GatewayEndpointDescriptor ControlGateway { get; set; } = new();
+
+    [Id(17)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }

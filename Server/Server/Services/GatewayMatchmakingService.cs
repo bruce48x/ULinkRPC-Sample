@@ -1,319 +1,249 @@
+using Orleans.Contracts.Matchmaking;
 using Orleans.Contracts.Rooms;
-using Shared.Interfaces;
+using Orleans.Contracts.Sessions;
 using Server.Realtime;
+using Shared.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace Server.Services;
 
 internal sealed class GatewayMatchmakingService
 {
-    private const int DefaultRoomSize = 10;
-    private static readonly TimeSpan MaxFrontQueueWait = TimeSpan.FromSeconds(5);
-
     private readonly Lock _gate = new();
-    private readonly List<QueueEntry> _queue = [];
+    private readonly Dictionary<string, CancellationTokenSource> _watchers = new(StringComparer.Ordinal);
+    private readonly IClusterClient _clusterClient;
     private readonly SessionDirectory _sessionDirectory;
+    private readonly MatchmakingMonitor _matchmakingMonitor;
     private readonly RoomRuntimeHost _roomRuntimeHost;
-    private readonly GatewayRealtimeOptions _realtimeOptions;
+    private readonly GatewayNodeIdentity _gatewayNodeIdentity;
     private readonly ILogger<GatewayMatchmakingService> _logger;
 
     public GatewayMatchmakingService(
+        IClusterClient clusterClient,
         SessionDirectory sessionDirectory,
+        MatchmakingMonitor matchmakingMonitor,
         RoomRuntimeHost roomRuntimeHost,
-        GatewayRealtimeOptions realtimeOptions,
+        GatewayNodeIdentity gatewayNodeIdentity,
         ILogger<GatewayMatchmakingService> logger)
     {
+        _clusterClient = clusterClient;
         _sessionDirectory = sessionDirectory;
+        _matchmakingMonitor = matchmakingMonitor;
         _roomRuntimeHost = roomRuntimeHost;
-        _realtimeOptions = realtimeOptions;
+        _gatewayNodeIdentity = gatewayNodeIdentity;
         _logger = logger;
     }
 
     public async Task EnqueueAsync(string playerId)
     {
-        List<QueuedStatusDispatch> queuedDispatches;
-        List<MatchedStatusDispatch> matchedDispatches;
+        var registration = _sessionDirectory.Get(playerId)
+            ?? throw new InvalidOperationException($"Player '{playerId}' is not registered.");
 
-        lock (_gate)
+        var matchmaking = _clusterClient.GetGrain<IMatchmakingGrain>("default");
+        var result = await matchmaking.EnqueueAsync(new MatchmakingEnqueueRequest
         {
-            var registration = _sessionDirectory.Get(playerId)
-                ?? throw new InvalidOperationException($"Player '{playerId}' is not registered.");
+            UserId = playerId,
+            SessionToken = registration.SessionToken,
+            EnqueuedAtUtc = DateTime.UtcNow
+        }).ConfigureAwait(false);
 
-            if (!string.IsNullOrWhiteSpace(registration.RoomId))
-            {
-                queuedDispatches = [];
-                matchedDispatches = [CreateMatchedDispatch(registration, GetRoomRegistrations(registration.RoomId))];
-            }
-            else
-            {
-                var existing = _queue.FindIndex(entry => string.Equals(entry.PlayerId, playerId, StringComparison.Ordinal));
-                if (existing < 0)
-                {
-                    var ticketId = Guid.NewGuid().ToString("N");
-                    _queue.Add(new QueueEntry(ticketId, playerId, DateTime.UtcNow));
-                    _sessionDirectory.SetQueueTicket(playerId, ticketId);
-                }
+        _sessionDirectory.SetQueueTicket(playerId, string.IsNullOrWhiteSpace(result.TicketId) ? null : result.TicketId);
 
-                matchedDispatches = CollectReadyMatchesLocked(DateTime.UtcNow);
-                queuedDispatches = BuildQueuedDispatchesLocked();
-            }
+        if (result.Matched)
+        {
+            StopWatcher(playerId);
+            await PublishMatchedAsync(playerId, result.RoomAssignment).ConfigureAwait(false);
+            return;
         }
 
-        PublishQueuedDispatches(queuedDispatches);
-        await PublishMatchedDispatchesAsync(matchedDispatches).ConfigureAwait(false);
+        PublishQueued(registration, result);
+        EnsureWatcher(playerId);
     }
 
-    public async Task TryDispatchReadyMatchesAsync()
+    public async Task CancelAsync(string playerId, string reason)
     {
-        List<QueuedStatusDispatch> queuedDispatches;
-        List<MatchedStatusDispatch> matchedDispatches;
+        StopWatcher(playerId);
 
-        lock (_gate)
+        var registration = _sessionDirectory.Get(playerId);
+        if (registration is null)
         {
-            matchedDispatches = CollectReadyMatchesLocked(DateTime.UtcNow);
-            if (matchedDispatches.Count == 0)
-            {
-                return;
-            }
-
-            queuedDispatches = BuildQueuedDispatchesLocked();
+            return;
         }
 
-        PublishQueuedDispatches(queuedDispatches);
-        await PublishMatchedDispatchesAsync(matchedDispatches).ConfigureAwait(false);
-    }
-
-    public Task CancelAsync(string playerId, string reason)
-    {
-        List<QueuedStatusDispatch> queuedDispatches;
-        SessionRegistration? registration;
-
-        lock (_gate)
+        var matchmaking = _clusterClient.GetGrain<IMatchmakingGrain>("default");
+        await matchmaking.CancelAsync(new MatchmakingCancelRequest
         {
-            var index = _queue.FindIndex(entry => string.Equals(entry.PlayerId, playerId, StringComparison.Ordinal));
-            if (index >= 0)
-            {
-                _queue.RemoveAt(index);
-                _sessionDirectory.SetQueueTicket(playerId, null);
-            }
+            UserId = playerId,
+            TicketId = registration.MatchmakingTicketId ?? string.Empty,
+            CancelledAtUtc = DateTime.UtcNow,
+            Reason = reason
+        }).ConfigureAwait(false);
 
-            registration = _sessionDirectory.Get(playerId);
-            queuedDispatches = BuildQueuedDispatchesLocked();
+        _sessionDirectory.SetQueueTicket(playerId, null);
+        if (registration.ControlCallback is null)
+        {
+            return;
         }
 
-        if (registration is not null)
+        SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
         {
-            SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
-            {
-                State = MatchmakingState.Canceled,
-                QueueSize = 0,
-                RoomCapacity = DefaultRoomSize,
-                RoomId = string.Empty,
-                MatchedPlayerCount = 0,
-                Message = string.IsNullOrWhiteSpace(reason) ? "Matchmaking cancelled" : reason
-            }));
-        }
-
-        PublishQueuedDispatches(queuedDispatches);
-        return Task.CompletedTask;
+            State = Shared.Interfaces.MatchmakingState.Canceled,
+            QueueSize = 0,
+            RoomCapacity = 10,
+            RoomId = string.Empty,
+            MatchedPlayerCount = 0,
+            Message = string.IsNullOrWhiteSpace(reason) ? "Matchmaking cancelled" : reason
+        }));
     }
 
     public async Task ReleasePlayerAsync(string playerId, string reason)
     {
-        string? roomId;
+        StopWatcher(playerId);
 
-        lock (_gate)
+        var registration = _sessionDirectory.Get(playerId);
+        if (registration is not null && !string.IsNullOrWhiteSpace(registration.MatchmakingTicketId))
         {
-            var queueIndex = _queue.FindIndex(entry => string.Equals(entry.PlayerId, playerId, StringComparison.Ordinal));
-            if (queueIndex >= 0)
+            var matchmaking = _clusterClient.GetGrain<IMatchmakingGrain>("default");
+            await matchmaking.CancelAsync(new MatchmakingCancelRequest
             {
-                _queue.RemoveAt(queueIndex);
-                _sessionDirectory.SetQueueTicket(playerId, null);
-            }
-
-            roomId = _sessionDirectory.Get(playerId)?.RoomId;
-            _sessionDirectory.ClearRoom(playerId);
+                UserId = playerId,
+                TicketId = registration.MatchmakingTicketId,
+                CancelledAtUtc = DateTime.UtcNow,
+                Reason = reason
+            }).ConfigureAwait(false);
+            _sessionDirectory.SetQueueTicket(playerId, null);
         }
 
+        var roomId = registration?.RoomId;
+        _sessionDirectory.ClearRoom(playerId);
         if (!string.IsNullOrWhiteSpace(roomId))
         {
             await _roomRuntimeHost.RemovePlayerAsync(roomId, playerId).ConfigureAwait(false);
         }
     }
 
-    private List<MatchedStatusDispatch> CollectReadyMatchesLocked(DateTime nowUtc)
+    private void PublishQueued(SessionRegistration registration, MatchmakingEnqueueResult result)
     {
-        var dispatches = new List<MatchedStatusDispatch>();
-
-        while (_queue.Count >= DefaultRoomSize)
+        if (registration.ControlCallback is null)
         {
-            dispatches.Add(CreateMatchedDispatchLocked(_queue.Take(DefaultRoomSize).ToArray(), nowUtc));
+            return;
         }
 
-        if (_queue.Count > 0 && nowUtc - _queue[0].EnqueuedAtUtc >= MaxFrontQueueWait)
+        SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
         {
-            dispatches.Add(CreateMatchedDispatchLocked(_queue.ToArray(), nowUtc));
-        }
-
-        return dispatches;
+            State = Shared.Interfaces.MatchmakingState.Queued,
+            QueuePosition = result.QueuePosition,
+            QueueSize = Math.Max(result.QueuePosition, 1),
+            RoomCapacity = 10,
+            RoomId = string.Empty,
+            MatchedPlayerCount = 0,
+            Message = string.IsNullOrWhiteSpace(result.Message) ? "Queued for matchmaking" : result.Message
+        }));
     }
 
-    private MatchedStatusDispatch CreateMatchedDispatchLocked(QueueEntry[] batch, DateTime nowUtc)
+    private async Task PublishMatchedAsync(string playerId, RoomAssignment assignment)
     {
-        var roomId = $"room-{Guid.NewGuid():N}";
-        var matchId = $"match-{Guid.NewGuid():N}";
-        _queue.RemoveRange(0, batch.Length);
+        var room = await _clusterClient.GetGrain<IRoomGrain>(assignment.RoomId)
+            .GetSnapshotAsync()
+            .ConfigureAwait(false);
 
-        var room = new RoomSnapshot
+        if (_gatewayNodeIdentity.IsRuntimeOwner(room.RuntimeGateway))
         {
-            RoomId = roomId,
-            MatchId = matchId,
-            Status = RoomStatus.InProgress,
-            MaxPlayers = DefaultRoomSize,
-            CreatedAtUtc = nowUtc,
-            StartedAtUtc = nowUtc,
-            LastUpdatedAtUtc = nowUtc,
-            Players = []
-        };
+            await _roomRuntimeHost.EnsureRoomReadyAsync(room).ConfigureAwait(false);
+        }
 
-        foreach (var (entry, seatIndex) in batch.Select((entry, seatIndex) => (entry, seatIndex)))
+        foreach (var player in room.Players)
         {
-            _sessionDirectory.SetQueueTicket(entry.PlayerId, null);
-            _sessionDirectory.AssignRoom(entry.PlayerId, roomId, matchId, seatIndex);
-            var registration = _sessionDirectory.Get(entry.PlayerId);
+            var registration = _sessionDirectory.Get(player.UserId);
             if (registration is null)
             {
                 continue;
             }
 
-            room.Players.Add(new RoomPlayerSnapshot
-            {
-                UserId = entry.PlayerId,
-                SessionToken = registration.SessionToken,
-                ConnectionId = registration.ConnectionId,
-                SeatIndex = seatIndex,
-                IsConnected = true,
-                JoinedAtUtc = nowUtc,
-                LastSeenAtUtc = nowUtc
-            });
-        }
+            _sessionDirectory.SetQueueTicket(player.UserId, null);
+            _sessionDirectory.AssignRoom(player.UserId, room.RoomId, room.MatchId, player.SeatIndex);
 
-        var registrations = GetRoomRegistrations(roomId);
-        return new MatchedStatusDispatch(room, registrations);
-    }
-
-    private List<QueuedStatusDispatch> BuildQueuedDispatchesLocked()
-    {
-        var dispatches = new List<QueuedStatusDispatch>(_queue.Count);
-        for (var index = 0; index < _queue.Count; index++)
-        {
-            var entry = _queue[index];
-            var registration = _sessionDirectory.Get(entry.PlayerId);
-            if (registration is null)
+            if (registration.ControlCallback is null)
             {
                 continue;
             }
 
-            dispatches.Add(new QueuedStatusDispatch(
-                registration,
-                new MatchmakingStatusUpdate
-                {
-                    State = MatchmakingState.Queued,
-                    QueuePosition = index + 1,
-                    QueueSize = _queue.Count,
-                    RoomCapacity = DefaultRoomSize,
-                    RoomId = string.Empty,
-                    MatchedPlayerCount = Math.Min(_queue.Count, DefaultRoomSize),
-                    Message = "Queued for matchmaking"
-                }));
-        }
-
-        return dispatches;
-    }
-
-    private MatchedStatusDispatch CreateMatchedDispatch(SessionRegistration registration, IReadOnlyList<SessionRegistration> roomRegistrations)
-    {
-        return new MatchedStatusDispatch(
-            BuildRoomSnapshot(registration.RoomId!, registration.MatchId!, roomRegistrations),
-            roomRegistrations);
-    }
-
-    private RoomSnapshot BuildRoomSnapshot(string roomId, string matchId, IReadOnlyList<SessionRegistration> roomRegistrations)
-    {
-        var nowUtc = DateTime.UtcNow;
-        var snapshot = new RoomSnapshot
-        {
-            RoomId = roomId,
-            MatchId = matchId,
-            Status = RoomStatus.InProgress,
-            MaxPlayers = DefaultRoomSize,
-            CreatedAtUtc = nowUtc,
-            StartedAtUtc = nowUtc,
-            LastUpdatedAtUtc = nowUtc,
-            Players = []
-        };
-
-        foreach (var registration in roomRegistrations)
-        {
-            snapshot.Players.Add(new RoomPlayerSnapshot
+            SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
             {
-                UserId = registration.PlayerId,
-                SessionToken = registration.SessionToken,
-                ConnectionId = registration.ConnectionId,
-                SeatIndex = registration.SeatIndex,
-                IsConnected = true,
-                JoinedAtUtc = nowUtc,
-                LastSeenAtUtc = nowUtc
-            });
-        }
-
-        return snapshot;
-    }
-
-    private IReadOnlyList<SessionRegistration> GetRoomRegistrations(string roomId)
-    {
-        return _sessionDirectory.GetByRoom(roomId)
-            .OrderBy(registration => registration.SeatIndex)
-            .ToArray();
-    }
-
-    private void PublishQueuedDispatches(IEnumerable<QueuedStatusDispatch> dispatches)
-    {
-        foreach (var dispatch in dispatches)
-        {
-            SafeInvoke(dispatch.Registration.ControlCallback, callback => callback.OnMatchmakingStatus(dispatch.Status));
+                State = Shared.Interfaces.MatchmakingState.Matched,
+                QueueSize = room.MemberCount > 0 ? room.MemberCount : room.Players.Count,
+                RoomCapacity = room.MaxPlayers,
+                RoomId = room.RoomId,
+                MatchedPlayerCount = room.Players.Count,
+                Message = $"Matched into room {room.RoomId}",
+                RealtimeConnection = GatewayEndpointMapper.ToRealtimeConnectionInfo(
+                    assignment.RuntimeGateway,
+                    room.RoomId,
+                    room.MatchId,
+                    player.SessionToken)
+            }));
         }
     }
 
-    private async Task PublishMatchedDispatchesAsync(IEnumerable<MatchedStatusDispatch> dispatches)
+    private void EnsureWatcher(string playerId)
     {
-        foreach (var dispatch in dispatches)
+        CancellationTokenSource cts;
+        lock (_gate)
         {
-            await _roomRuntimeHost.EnsureRoomReadyAsync(dispatch.Room).ConfigureAwait(false);
-
-            foreach (var registration in dispatch.Registrations)
+            if (_watchers.ContainsKey(playerId))
             {
-                SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
-                {
-                    State = MatchmakingState.Matched,
-                    QueueSize = dispatch.Room.MemberCount > 0 ? dispatch.Room.MemberCount : dispatch.Room.Players.Count,
-                    RoomCapacity = dispatch.Room.MaxPlayers,
-                    RoomId = dispatch.Room.RoomId,
-                    MatchedPlayerCount = dispatch.Room.Players.Count,
-                    Message = $"Matched into room {dispatch.Room.RoomId}",
-                    RealtimeConnection = new RealtimeConnectionInfo
-                    {
-                        Transport = _realtimeOptions.Transport,
-                        Host = _realtimeOptions.Host,
-                        Port = _realtimeOptions.Port,
-                        Path = _realtimeOptions.Path,
-                        RoomId = dispatch.Room.RoomId,
-                        MatchId = dispatch.Room.MatchId,
-                        SessionToken = registration.SessionToken
-                    }
-                }));
+                return;
             }
+
+            cts = new CancellationTokenSource();
+            _watchers.Add(playerId, cts);
         }
+
+        _ = WatchForAssignmentAsync(playerId, cts);
+    }
+
+    private async Task WatchForAssignmentAsync(string playerId, CancellationTokenSource cts)
+    {
+        try
+        {
+            await _matchmakingMonitor.WatchForRoomAssignmentAsync(playerId, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed while watching matchmaking assignment for player {PlayerId}.", playerId);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (_watchers.TryGetValue(playerId, out var current) && ReferenceEquals(current, cts))
+                {
+                    _watchers.Remove(playerId);
+                }
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    private void StopWatcher(string playerId)
+    {
+        CancellationTokenSource? cts;
+        lock (_gate)
+        {
+            if (!_watchers.TryGetValue(playerId, out cts))
+            {
+                return;
+            }
+
+            _watchers.Remove(playerId);
+        }
+
+        cts.Cancel();
+        cts.Dispose();
     }
 
     private void SafeInvoke(IPlayerCallback callback, Action<IPlayerCallback> action)
@@ -327,10 +257,4 @@ internal sealed class GatewayMatchmakingService
             _logger.LogWarning(ex, "Failed to push matchmaking callback.");
         }
     }
-
-    private readonly record struct QueueEntry(string TicketId, string PlayerId, DateTime EnqueuedAtUtc);
-
-    private readonly record struct QueuedStatusDispatch(SessionRegistration Registration, MatchmakingStatusUpdate Status);
-
-    private readonly record struct MatchedStatusDispatch(RoomSnapshot Room, IReadOnlyList<SessionRegistration> Registrations);
 }

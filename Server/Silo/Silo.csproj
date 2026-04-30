@@ -9,8 +9,16 @@
 
     <ItemGroup>
         <ProjectReference Include="../Orleans.Contracts/Orleans.Contracts.csproj" />
-        <PackageReference Include="Microsoft.Orleans.Persistence.Memory" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Orleans.Persistence.AdoNet" Version="10.0.0" />
         <PackageReference Include="Microsoft.Orleans.Server" Version="10.0.0" />
+        <PackageReference Include="Npgsql" Version="9.0.4" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="appsettings.json">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
 
 </Project>

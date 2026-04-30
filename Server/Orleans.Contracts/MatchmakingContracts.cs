@@ -1,4 +1,5 @@
 using Orleans;
+using Orleans.Contracts;
 using Orleans.Contracts.Sessions;
 using Orleans.Contracts.Rooms;
 
@@ -8,6 +9,7 @@ public interface IMatchmakingGrain : IGrainWithStringKey
 {
     Task<MatchmakingEnqueueResult> EnqueueAsync(MatchmakingEnqueueRequest request);
     Task<MatchmakingCancelResult> CancelAsync(MatchmakingCancelRequest request);
+    Task TickAsync(MatchmakingTickRequest request);
     Task<MatchmakingStatusSnapshot> GetStatusAsync();
 }
 
@@ -41,6 +43,13 @@ public sealed class MatchmakingCancelRequest
 
     [Id(3)]
     public string Reason { get; set; } = "";
+}
+
+[GenerateSerializer]
+public sealed class MatchmakingTickRequest
+{
+    [Id(0)]
+    public DateTime ObservedAtUtc { get; set; }
 }
 
 [GenerateSerializer]
@@ -176,4 +185,7 @@ public sealed class RoomAssignment
 
     [Id(3)]
     public List<PlayerRoomAssignment> Players { get; set; } = [];
+
+    [Id(4)]
+    public GatewayEndpointDescriptor RuntimeGateway { get; set; } = new();
 }

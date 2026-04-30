@@ -1,4 +1,6 @@
 using Orleans.Contracts.Users;
+using Orleans.Contracts;
+using Orleans.Contracts.Sessions;
 using Server.Realtime;
 using Server.Runtime;
 using Shared.Interfaces;
@@ -12,6 +14,7 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
     private readonly IPlayerCallback _callback;
     private readonly SessionDirectory _sessionDirectory;
     private readonly GatewayMatchmakingService _gatewayMatchmaking;
+    private readonly GatewayNodeIdentity _gatewayNodeIdentity;
     private readonly RoomRuntimeHost _roomRuntimeHost;
     private readonly ILogger<PlayerService> _logger;
     private bool _disposed;
@@ -26,6 +29,7 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         _clusterClient = ServerRuntime.GetRequiredService<IClusterClient>();
         _sessionDirectory = ServerRuntime.GetRequiredService<SessionDirectory>();
         _gatewayMatchmaking = ServerRuntime.GetRequiredService<GatewayMatchmakingService>();
+        _gatewayNodeIdentity = ServerRuntime.GetRequiredService<GatewayNodeIdentity>();
         _roomRuntimeHost = ServerRuntime.GetRequiredService<RoomRuntimeHost>();
         _logger = ServerRuntime.GetRequiredService<ILogger<PlayerService>>();
     }
@@ -69,6 +73,16 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         _controlLoggedIn = true;
 
         _sessionDirectory.Register(loginResult.UserId, loginResult.SessionToken, _connectionId, _callback);
+        await _clusterClient.GetGrain<IPlayerSessionGrain>(loginResult.UserId)
+            .AttachAsync(new PlayerSessionAttachRequest
+            {
+                UserId = loginResult.UserId,
+                SessionToken = loginResult.SessionToken,
+                ConnectionId = _connectionId,
+                AttachedAtUtc = DateTime.UtcNow,
+                ControlGateway = CloneGateway(_gatewayNodeIdentity.RealtimeEndpoint)
+            })
+            .ConfigureAwait(false);
 
         return new LoginReply
         {
@@ -103,7 +117,7 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         await _gatewayMatchmaking.CancelAsync(_playerId, "Matchmaking cancelled").ConfigureAwait(false);
     }
 
-    public ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req)
+    public async ValueTask<RealtimeAttachReply> AttachRealtimeAsync(RealtimeAttachRequest req)
     {
         ThrowIfDisposed();
 
@@ -112,12 +126,40 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
             string.IsNullOrWhiteSpace(req.RoomId) ||
             string.IsNullOrWhiteSpace(req.MatchId))
         {
-            return ValueTask.FromResult(new RealtimeAttachReply
+            return new RealtimeAttachReply
             {
                 Code = 1,
                 Message = "Realtime attach request is incomplete."
-            });
+            };
         }
+
+        var sessionSnapshot = await _clusterClient.GetGrain<IPlayerSessionGrain>(req.PlayerId)
+            .GetSnapshotAsync()
+            .ConfigureAwait(false);
+        if (!string.Equals(sessionSnapshot.SessionToken, req.Token, StringComparison.Ordinal) ||
+            !string.Equals(sessionSnapshot.CurrentRoomId, req.RoomId, StringComparison.Ordinal) ||
+            !string.Equals(sessionSnapshot.CurrentMatchId, req.MatchId, StringComparison.Ordinal))
+        {
+            return new RealtimeAttachReply
+            {
+                Code = 2,
+                Message = "Realtime session attach rejected."
+            };
+        }
+
+        if (!_gatewayNodeIdentity.IsRuntimeOwner(sessionSnapshot.RuntimeGateway))
+        {
+            return new RealtimeAttachReply
+            {
+                Code = 3,
+                Message = "Realtime session must attach to the runtime owner gateway."
+            };
+        }
+
+        var room = await _clusterClient.GetGrain<Orleans.Contracts.Rooms.IRoomGrain>(req.RoomId)
+            .GetSnapshotAsync()
+            .ConfigureAwait(false);
+        await _roomRuntimeHost.EnsureRoomReadyAsync(room).ConfigureAwait(false);
 
         _playerId = req.PlayerId;
         _connectionId = Guid.NewGuid().ToString("N");
@@ -129,46 +171,49 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
             _playerId = null;
             _connectionId = null;
             _isRealtimeConnection = false;
-            return ValueTask.FromResult(new RealtimeAttachReply
+            return new RealtimeAttachReply
             {
                 Code = 2,
                 Message = "Realtime session attach rejected."
-            });
+            };
         }
 
-        return ValueTask.FromResult(new RealtimeAttachReply
+        return new RealtimeAttachReply
         {
             Code = 0,
             Message = "Realtime session attached.",
             PlayerId = req.PlayerId,
             RoomId = req.RoomId,
             MatchId = req.MatchId
-        });
+        };
     }
 
-    public ValueTask SubmitInput(InputMessage req)
+    public async ValueTask SubmitInput(InputMessage req)
     {
         ThrowIfDisposed();
 
         if (string.IsNullOrWhiteSpace(_playerId))
         {
-            return ValueTask.CompletedTask;
+            return;
         }
 
         if (!string.IsNullOrWhiteSpace(req.PlayerId) &&
             !string.Equals(req.PlayerId, _playerId, StringComparison.Ordinal))
         {
-            return ValueTask.CompletedTask;
+            return;
         }
 
-        var registration = _sessionDirectory.Get(_playerId);
-        if (registration is null || string.IsNullOrWhiteSpace(registration.RoomId))
+        var sessionSnapshot = await _clusterClient.GetGrain<IPlayerSessionGrain>(_playerId)
+            .GetSnapshotAsync()
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(sessionSnapshot.CurrentRoomId) ||
+            !_gatewayNodeIdentity.IsRuntimeOwner(sessionSnapshot.RuntimeGateway))
         {
-            return ValueTask.CompletedTask;
+            return;
         }
 
         req.PlayerId = _playerId;
-        return new ValueTask(_roomRuntimeHost.SubmitInputAsync(registration.RoomId, _playerId, req));
+        await _roomRuntimeHost.SubmitInputAsync(sessionSnapshot.CurrentRoomId, _playerId, req).ConfigureAwait(false);
     }
 
     public async ValueTask LogoutAsync(LogoutRequest req)
@@ -216,6 +261,15 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         try
         {
             await _gatewayMatchmaking.ReleasePlayerAsync(playerId, reason).ConfigureAwait(false);
+            await _clusterClient.GetGrain<IPlayerSessionGrain>(playerId)
+                .MarkDisconnectedAsync(new PlayerSessionDisconnectRequest
+                {
+                    UserId = playerId,
+                    ConnectionId = registration?.ConnectionId ?? string.Empty,
+                    DisconnectedAtUtc = DateTime.UtcNow,
+                    Reason = reason
+                })
+                .ConfigureAwait(false);
             await _clusterClient.GetGrain<IUserGrain>(playerId)
                 .SetOnlineAsync(false)
                 .ConfigureAwait(false);
@@ -244,4 +298,15 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
+    private static GatewayEndpointDescriptor CloneGateway(GatewayEndpointDescriptor gateway)
+    {
+        return new GatewayEndpointDescriptor
+        {
+            InstanceId = gateway.InstanceId,
+            Transport = gateway.Transport,
+            Host = gateway.Host,
+            Port = gateway.Port,
+            Path = gateway.Path
+        };
+    }
 }

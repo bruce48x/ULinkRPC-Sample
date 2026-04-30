@@ -138,14 +138,22 @@ internal sealed class RoomRuntime : IAsyncDisposable
         var registrations = _sessionDirectory.GetByRoom(_roomId);
         foreach (var registration in registrations)
         {
-            SafeInvoke(registration.GetRealtimePreferredCallback(), callback => callback.OnWorldState(result.WorldState));
+            var callback = registration.GetRealtimePreferredCallback();
+            if (callback is not null)
+            {
+                SafeInvoke(callback, target => target.OnWorldState(result.WorldState));
+            }
         }
 
         foreach (var deadEvent in result.Deaths)
         {
             foreach (var registration in registrations)
             {
-                SafeInvoke(registration.GetRealtimePreferredCallback(), callback => callback.OnPlayerDead(deadEvent));
+                var callback = registration.GetRealtimePreferredCallback();
+                if (callback is not null)
+                {
+                    SafeInvoke(callback, target => target.OnPlayerDead(deadEvent));
+                }
             }
         }
 
@@ -156,7 +164,11 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
         foreach (var registration in registrations)
         {
-            SafeInvoke(registration.GetRealtimePreferredCallback(), callback => callback.OnMatchEnd(result.MatchEnd));
+            var callback = registration.GetRealtimePreferredCallback();
+            if (callback is not null)
+            {
+                SafeInvoke(callback, target => target.OnMatchEnd(result.MatchEnd));
+            }
         }
     }
 

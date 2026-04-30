@@ -1,4 +1,5 @@
 using Orleans;
+using Orleans.Contracts;
 using Orleans.Contracts.Matchmaking;
 using Orleans.Contracts.Rooms;
 using Orleans.Contracts.Sessions;
@@ -9,6 +10,7 @@ namespace ULinkRPC.Sample.Silo.Matchmaking;
 public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
 {
     private const int DefaultRoomSize = 10;
+    private static readonly TimeSpan MaxFrontQueueWait = TimeSpan.FromSeconds(5);
     private readonly IPersistentState<MatchmakingState> _state;
 
     public MatchmakingGrain([PersistentState("matchmaking", "matchmaking")] IPersistentState<MatchmakingState> state)
@@ -162,6 +164,25 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
         });
     }
 
+    public async Task TickAsync(MatchmakingTickRequest request)
+    {
+        EnsureState();
+        if (_state.State.PendingTickets.Count == 0)
+        {
+            return;
+        }
+
+        var observedAtUtc = NormalizeUtc(request.ObservedAtUtc);
+        var roomSize = Math.Clamp(_state.State.DefaultRoomSize <= 0 ? DefaultRoomSize : _state.State.DefaultRoomSize, 1, DefaultRoomSize);
+        var waitedLongEnough = observedAtUtc - _state.State.PendingTickets[0].EnqueuedAtUtc >= MaxFrontQueueWait;
+        if (_state.State.PendingTickets.Count < roomSize && !waitedLongEnough)
+        {
+            return;
+        }
+
+        await TryMatchAsync(observedAtUtc).ConfigureAwait(false);
+    }
+
     private async Task<Dictionary<string, RoomAssignment>> TryMatchAsync(DateTime nowUtc)
     {
         var assignments = new Dictionary<string, RoomAssignment>(StringComparer.Ordinal);
@@ -174,6 +195,7 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
 
             var roomId = $"room-{Guid.NewGuid():N}";
             var matchId = $"match-{Guid.NewGuid():N}";
+            var runtimeGateway = await ResolveRuntimeGatewayAsync(batch).ConfigureAwait(false);
             var playerAssignments = batch.Select((ticket, seatIndex) => new PlayerRoomAssignment
             {
                 UserId = ticket.UserId,
@@ -182,7 +204,8 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
                 SeatIndex = seatIndex,
                 SessionToken = ticket.SessionToken,
                 ConnectionId = "",
-                AssignedAtUtc = nowUtc
+                AssignedAtUtc = nowUtc,
+                RuntimeGateway = CloneGateway(runtimeGateway)
             }).ToList();
 
             var roomGrain = GrainFactory.GetGrain<IRoomGrain>(roomId);
@@ -193,7 +216,8 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
                 CreatedByUserId = batch[0].UserId,
                 CreatedAtUtc = nowUtc,
                 MaxPlayers = roomSize,
-                Players = playerAssignments.Select(CloneAssignment).ToList()
+                Players = playerAssignments.Select(CloneAssignment).ToList(),
+                RuntimeGateway = CloneGateway(runtimeGateway)
             });
 
             if (!createResult.Succeeded)
@@ -220,7 +244,8 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
                 RoomId = roomId,
                 MatchId = matchId,
                 AssignedAtUtc = nowUtc,
-                Players = playerAssignments.Select(CloneAssignment).ToList()
+                Players = playerAssignments.Select(CloneAssignment).ToList(),
+                RuntimeGateway = CloneGateway(runtimeGateway)
             };
 
             foreach (var playerAssignment in playerAssignments)
@@ -314,7 +339,8 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
             SeatIndex = assignment.SeatIndex,
             SessionToken = assignment.SessionToken,
             ConnectionId = assignment.ConnectionId,
-            AssignedAtUtc = assignment.AssignedAtUtc
+            AssignedAtUtc = assignment.AssignedAtUtc,
+            RuntimeGateway = CloneGateway(assignment.RuntimeGateway)
         };
     }
 
@@ -325,6 +351,7 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
             RoomId = sessionSnapshot.CurrentRoomId,
             MatchId = sessionSnapshot.CurrentMatchId,
             AssignedAtUtc = assignedAtUtc,
+            RuntimeGateway = CloneGateway(sessionSnapshot.RuntimeGateway),
             Players = new List<PlayerRoomAssignment>
             {
                 new()
@@ -335,7 +362,8 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
                     SeatIndex = sessionSnapshot.SeatIndex,
                     SessionToken = sessionSnapshot.SessionToken,
                     ConnectionId = sessionSnapshot.ConnectionId,
-                    AssignedAtUtc = assignedAtUtc
+                    AssignedAtUtc = assignedAtUtc,
+                    RuntimeGateway = CloneGateway(sessionSnapshot.RuntimeGateway)
                 }
             }
         };
@@ -354,5 +382,46 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
     private static DateTime NormalizeUtc(DateTime value)
     {
         return value == default ? DateTime.UtcNow : value;
+    }
+
+    private async Task<GatewayEndpointDescriptor> ResolveRuntimeGatewayAsync(IReadOnlyList<MatchmakingQueueTicket> batch)
+    {
+        foreach (var ticket in batch)
+        {
+            var snapshot = await GrainFactory.GetGrain<IPlayerSessionGrain>(ticket.UserId)
+                .GetSnapshotAsync()
+                .ConfigureAwait(false);
+            if (HasValidGateway(snapshot.ControlGateway))
+            {
+                return CloneGateway(snapshot.ControlGateway);
+            }
+        }
+
+        return new GatewayEndpointDescriptor();
+    }
+
+    private static bool HasValidGateway(GatewayEndpointDescriptor? gateway)
+    {
+        return gateway is not null
+            && !string.IsNullOrWhiteSpace(gateway.InstanceId)
+            && !string.IsNullOrWhiteSpace(gateway.Host)
+            && gateway.Port > 0;
+    }
+
+    private static GatewayEndpointDescriptor CloneGateway(GatewayEndpointDescriptor? gateway)
+    {
+        if (gateway is null)
+        {
+            return new GatewayEndpointDescriptor();
+        }
+
+        return new GatewayEndpointDescriptor
+        {
+            InstanceId = gateway.InstanceId,
+            Transport = gateway.Transport,
+            Host = gateway.Host,
+            Port = gateway.Port,
+            Path = gateway.Path
+        };
     }
 }

@@ -14,17 +14,20 @@ internal sealed class MatchmakingMonitor
     private readonly IClusterClient _clusterClient;
     private readonly SessionDirectory _sessionDirectory;
     private readonly RoomRuntimeHost _roomRuntimeHost;
+    private readonly GatewayNodeIdentity _gatewayNodeIdentity;
     private readonly ILogger<MatchmakingMonitor> _logger;
 
     public MatchmakingMonitor(
         IClusterClient clusterClient,
         SessionDirectory sessionDirectory,
         RoomRuntimeHost roomRuntimeHost,
+        GatewayNodeIdentity gatewayNodeIdentity,
         ILogger<MatchmakingMonitor> logger)
     {
         _clusterClient = clusterClient;
         _sessionDirectory = sessionDirectory;
         _roomRuntimeHost = roomRuntimeHost;
+        _gatewayNodeIdentity = gatewayNodeIdentity;
         _logger = logger;
     }
 
@@ -42,16 +45,16 @@ internal sealed class MatchmakingMonitor
                     .GetSnapshotAsync()
                     .ConfigureAwait(false);
                 var player = room.Players.FirstOrDefault(entry => string.Equals(entry.UserId, playerId, StringComparison.Ordinal));
-                _sessionDirectory.AssignRoom(
-                    playerId,
-                    snapshot.CurrentRoomId,
-                    snapshot.CurrentMatchId,
-                    player?.SeatIndex ?? -1);
+                _sessionDirectory.SetQueueTicket(playerId, null);
+                _sessionDirectory.AssignRoom(playerId, snapshot.CurrentRoomId, snapshot.CurrentMatchId, player?.SeatIndex ?? -1);
 
-                await _roomRuntimeHost.EnsureRoomReadyAsync(room).ConfigureAwait(false);
+                if (_gatewayNodeIdentity.IsRuntimeOwner(room.RuntimeGateway))
+                {
+                    await _roomRuntimeHost.EnsureRoomReadyAsync(room).ConfigureAwait(false);
+                }
 
                 var registration = _sessionDirectory.Get(playerId);
-                if (registration is not null)
+                if (registration?.ControlCallback is not null)
                 {
                     SafeInvoke(registration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
                     {
@@ -60,7 +63,12 @@ internal sealed class MatchmakingMonitor
                         RoomCapacity = room.MaxPlayers,
                         RoomId = room.RoomId,
                         MatchedPlayerCount = room.MemberCount,
-                        Message = $"Matched into room {room.RoomId}"
+                        Message = $"Matched into room {room.RoomId}",
+                        RealtimeConnection = GatewayEndpointMapper.ToRealtimeConnectionInfo(
+                            room.RuntimeGateway,
+                            room.RoomId,
+                            room.MatchId,
+                            snapshot.SessionToken)
                     }));
                 }
 
@@ -71,7 +79,7 @@ internal sealed class MatchmakingMonitor
             var position = status.PendingTickets.FindIndex(ticket => string.Equals(ticket.UserId, playerId, StringComparison.Ordinal));
 
             var callbackRegistration = _sessionDirectory.Get(playerId);
-            if (callbackRegistration is not null)
+            if (callbackRegistration?.ControlCallback is not null)
             {
                 SafeInvoke(callbackRegistration.ControlCallback, callback => callback.OnMatchmakingStatus(new MatchmakingStatusUpdate
                 {

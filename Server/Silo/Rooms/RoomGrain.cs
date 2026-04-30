@@ -1,4 +1,5 @@
 using Orleans;
+using Orleans.Contracts;
 using Orleans.Contracts.Rooms;
 using Orleans.Contracts.Sessions;
 using Orleans.Runtime;
@@ -42,7 +43,8 @@ public sealed class RoomGrain : Grain, IRoomGrain
             Status = RoomStatus.WaitingForPlayers,
             MaxPlayers = maxPlayers,
             CreatedAtUtc = createdAtUtc,
-            LastUpdatedAtUtc = createdAtUtc
+            LastUpdatedAtUtc = createdAtUtc,
+            RuntimeGateway = CloneGateway(request.RuntimeGateway)
         };
 
         foreach (var player in request.Players)
@@ -394,7 +396,8 @@ public sealed class RoomGrain : Grain, IRoomGrain
             MemberCount = memberCount,
             ConnectedCount = connectedCount,
             ReadyCount = readyCount,
-            CapacityRemaining = Math.Max(0, maxPlayers - memberCount)
+            CapacityRemaining = Math.Max(0, maxPlayers - memberCount),
+            RuntimeGateway = _state.RecordExists ? CloneGateway(_state.State.RuntimeGateway) : new GatewayEndpointDescriptor()
         };
     }
 
@@ -442,5 +445,22 @@ public sealed class RoomGrain : Grain, IRoomGrain
     private static DateTime NormalizeUtc(DateTime value)
     {
         return value == default ? DateTime.UtcNow : value;
+    }
+
+    private static GatewayEndpointDescriptor CloneGateway(GatewayEndpointDescriptor? gateway)
+    {
+        if (gateway is null)
+        {
+            return new GatewayEndpointDescriptor();
+        }
+
+        return new GatewayEndpointDescriptor
+        {
+            InstanceId = gateway.InstanceId,
+            Transport = gateway.Transport,
+            Host = gateway.Host,
+            Port = gateway.Port,
+            Path = gateway.Path
+        };
     }
 }

@@ -17,6 +17,14 @@
     <PackageReference Include="ULinkRPC.Transport.Kcp" Version="0.11.3" />
     <PackageReference Include="ULinkRPC.Transport.WebSocket" Version="0.11.3" />
     <PackageReference Include="ULinkRPC.Serializer.MemoryPack" Version="0.11.0" />
+    <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" Version="10.0.0" />
     <PackageReference Include="Microsoft.Orleans.Client" Version="10.0.0" />
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

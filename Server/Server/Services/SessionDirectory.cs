@@ -11,6 +11,14 @@ internal sealed class SessionDirectory
     {
         lock (_gate)
         {
+            if (_byPlayerId.TryGetValue(playerId, out var registration))
+            {
+                registration.SessionToken = sessionToken;
+                registration.ConnectionId = connectionId;
+                registration.ControlCallback = callback;
+                return;
+            }
+
             _byPlayerId[playerId] = new SessionRegistration(playerId, sessionToken, connectionId, callback);
         }
     }
@@ -46,16 +54,21 @@ internal sealed class SessionDirectory
         {
             if (!_byPlayerId.TryGetValue(playerId, out var registration))
             {
-                return false;
+                registration = new SessionRegistration(playerId, sessionToken, connectionId, controlCallback: null)
+                {
+                    RoomId = roomId,
+                    MatchId = matchId
+                };
+                _byPlayerId[playerId] = registration;
             }
 
-            if (!string.Equals(registration.SessionToken, sessionToken, StringComparison.Ordinal) ||
-                !string.Equals(registration.RoomId, roomId, StringComparison.Ordinal) ||
-                !string.Equals(registration.MatchId, matchId, StringComparison.Ordinal))
+            if (!string.Equals(registration.SessionToken, sessionToken, StringComparison.Ordinal))
             {
                 return false;
             }
 
+            registration.RoomId = roomId;
+            registration.MatchId = matchId;
             registration.RealtimeConnectionId = connectionId;
             registration.RealtimeCallback = callback;
             return true;
@@ -79,6 +92,10 @@ internal sealed class SessionDirectory
 
             registration.RealtimeConnectionId = null;
             registration.RealtimeCallback = null;
+            if (registration.ControlCallback is null)
+            {
+                _byPlayerId.Remove(playerId);
+            }
         }
     }
 
