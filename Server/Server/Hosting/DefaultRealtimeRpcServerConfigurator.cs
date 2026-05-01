@@ -1,7 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
+using Server.Generated;
+using Server.Services;
 using ULinkHost.Hosting;
 using ULinkHost.Transport;
 using ULinkRPC.Serializer.MemoryPack;
-using ULinkRPC.Server;
 using ULinkRPC.Transport.Kcp;
 using ULinkRPC.Transport.WebSocket;
 
@@ -16,9 +18,14 @@ internal sealed class DefaultRealtimeRpcServerConfigurator : IRealtimeRpcServerC
         _options = options;
     }
 
-    public void Configure(RpcServerHostBuilder builder)
+    public void Configure(ULinkHostRpcServerContext context)
     {
+        var builder = context.Builder;
         builder.UseSerializer(new MemoryPackRpcSerializer());
+
+        PlayerServiceBinder.Bind(
+            builder.ServiceRegistry,
+            callback => ActivatorUtilities.CreateInstance<PlayerService>(context.Services, callback));
 
         var port = _options.Port > 0 ? _options.Port : 20001;
         if (string.Equals(_options.Transport, "websocket", StringComparison.OrdinalIgnoreCase) ||

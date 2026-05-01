@@ -1,11 +1,9 @@
-using Microsoft.Extensions.DependencyInjection;
 using Orleans.Contracts.Rooms;
 using Orleans.Contracts.Users;
 using Server.Services;
 using Shared.Gameplay;
 using Shared.Interfaces;
 using Microsoft.Extensions.Logging;
-using ULinkHost.Runtime;
 
 namespace Server.Realtime;
 
@@ -15,6 +13,7 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
     private readonly Lock _gate = new();
     private readonly SessionDirectory _sessionDirectory;
+    private readonly IClusterClient _clusterClient;
     private readonly ArenaSimulation _simulation;
     private readonly string _roomId;
     private readonly ILogger<RoomRuntime> _logger;
@@ -22,11 +21,16 @@ internal sealed class RoomRuntime : IAsyncDisposable
     private readonly Task _loopTask;
     private bool _matchCommitted;
 
-    public RoomRuntime(RoomSnapshot room, IServiceProvider services)
+    public RoomRuntime(
+        RoomSnapshot room,
+        SessionDirectory sessionDirectory,
+        IClusterClient clusterClient,
+        ILogger<RoomRuntime> logger)
     {
         _roomId = room.RoomId;
-        _sessionDirectory = services.GetRequiredService<SessionDirectory>();
-        _logger = services.GetRequiredService<ILogger<RoomRuntime>>();
+        _sessionDirectory = sessionDirectory;
+        _clusterClient = clusterClient;
+        _logger = logger;
         _simulation = new ArenaSimulation(new ArenaSimulationOptions
         {
             Arena = ArenaConfig.CreateDefault(),
@@ -175,11 +179,9 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
     private async Task PersistMatchEndAsync(ArenaStepResult result)
     {
-        var clusterClient = ULinkHostRuntime.GetRequiredService<IClusterClient>();
-
         foreach (var player in result.WorldState.Players)
         {
-            await clusterClient.GetGrain<IUserGrain>(player.PlayerId)
+            await _clusterClient.GetGrain<IUserGrain>(player.PlayerId)
                 .AddScoreAsync(player.Score)
                 .ConfigureAwait(false);
         }
@@ -193,7 +195,7 @@ internal sealed class RoomRuntime : IAsyncDisposable
         var winnerPlayerId = result.MatchEnd?.WinnerPlayerId;
         if (!string.IsNullOrWhiteSpace(winnerPlayerId))
         {
-            await clusterClient.GetGrain<IUserGrain>(winnerPlayerId).AddWinAsync().ConfigureAwait(false);
+            await _clusterClient.GetGrain<IUserGrain>(winnerPlayerId).AddWinAsync().ConfigureAwait(false);
         }
     }
 

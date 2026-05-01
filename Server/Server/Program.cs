@@ -24,6 +24,5 @@ builder.Services.AddSingleton<IRealtimeRpcServerConfigurator, DefaultRealtimeRpc
 builder.Services.AddHostedService<MatchmakingHostedService>();
 builder.Services.AddULinkHostGateway(builder.Configuration);
 
-var host = builder.Build()
-    .InitializeULinkHostRuntime();
+var host = builder.Build();
 await host.RunAsync();

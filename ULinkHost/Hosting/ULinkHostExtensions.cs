@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Orleans.Configuration;
-using ULinkHost.Runtime;
+using Orleans.Hosting;
 
 namespace ULinkHost.Hosting;
 
@@ -36,6 +36,13 @@ public static class ULinkHostExtensions
 
     public static IHostBuilder UseULinkHostOrleansSilo(this IHostBuilder hostBuilder)
     {
+        return hostBuilder.UseULinkHostOrleansSilo(configureSilo: null);
+    }
+
+    public static IHostBuilder UseULinkHostOrleansSilo(
+        this IHostBuilder hostBuilder,
+        Action<HostBuilderContext, ISiloBuilder>? configureSilo)
+    {
         return hostBuilder.UseOrleans((context, silo) =>
         {
             var configuration = context.Configuration;
@@ -59,33 +66,9 @@ public static class ULinkHostExtensions
                 options.Invariant = invariant;
                 options.ConnectionString = connectionString;
             });
-            silo.AddAdoNetGrainStorage("users", options =>
-            {
-                options.Invariant = invariant;
-                options.ConnectionString = connectionString;
-            });
-            silo.AddAdoNetGrainStorage("sessions", options =>
-            {
-                options.Invariant = invariant;
-                options.ConnectionString = connectionString;
-            });
-            silo.AddAdoNetGrainStorage("matchmaking", options =>
-            {
-                options.Invariant = invariant;
-                options.ConnectionString = connectionString;
-            });
-            silo.AddAdoNetGrainStorage("rooms", options =>
-            {
-                options.Invariant = invariant;
-                options.ConnectionString = connectionString;
-            });
-        });
-    }
 
-    public static IHost InitializeULinkHostRuntime(this IHost host)
-    {
-        ULinkHostRuntime.Initialize(host.Services);
-        return host;
+            configureSilo?.Invoke(context, silo);
+        });
     }
 
     private static int ParsePort(string? rawValue, int fallback)

@@ -25,12 +25,19 @@ internal sealed class MatchmakingHostedService : BackgroundService
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
             {
-                await _clusterClient.GetGrain<IMatchmakingGrain>("default")
-                    .TickAsync(new MatchmakingTickRequest
-                    {
-                        ObservedAtUtc = DateTime.UtcNow
-                    })
-                    .ConfigureAwait(false);
+                try
+                {
+                    await _clusterClient.GetGrain<IMatchmakingGrain>("default")
+                        .TickAsync(new MatchmakingTickRequest
+                        {
+                            ObservedAtUtc = DateTime.UtcNow
+                        })
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Matchmaking tick failed.");
+                }
             }
         }
         catch (OperationCanceledException)

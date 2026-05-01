@@ -4,11 +4,10 @@ using Orleans.Contracts.Sessions;
 using Server.Realtime;
 using Shared.Interfaces;
 using Microsoft.Extensions.Logging;
-using ULinkHost.Runtime;
 
 namespace Server.Services;
 
-public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposable
+internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposable
 {
     private readonly IClusterClient _clusterClient;
     private readonly IPlayerCallback _callback;
@@ -23,15 +22,22 @@ public sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposabl
     private bool _isRealtimeConnection;
     private bool _controlLoggedIn;
 
-    public PlayerService(IPlayerCallback callback)
+    public PlayerService(
+        IPlayerCallback callback,
+        IClusterClient clusterClient,
+        SessionDirectory sessionDirectory,
+        GatewayMatchmakingService gatewayMatchmaking,
+        GatewayNodeIdentity gatewayNodeIdentity,
+        RoomRuntimeHost roomRuntimeHost,
+        ILogger<PlayerService> logger)
     {
         _callback = callback;
-        _clusterClient = ULinkHostRuntime.GetRequiredService<IClusterClient>();
-        _sessionDirectory = ULinkHostRuntime.GetRequiredService<SessionDirectory>();
-        _gatewayMatchmaking = ULinkHostRuntime.GetRequiredService<GatewayMatchmakingService>();
-        _gatewayNodeIdentity = ULinkHostRuntime.GetRequiredService<GatewayNodeIdentity>();
-        _roomRuntimeHost = ULinkHostRuntime.GetRequiredService<RoomRuntimeHost>();
-        _logger = ULinkHostRuntime.GetRequiredService<ILogger<PlayerService>>();
+        _clusterClient = clusterClient;
+        _sessionDirectory = sessionDirectory;
+        _gatewayMatchmaking = gatewayMatchmaking;
+        _gatewayNodeIdentity = gatewayNodeIdentity;
+        _roomRuntimeHost = roomRuntimeHost;
+        _logger = logger;
     }
 
     public async ValueTask DisposeAsync()

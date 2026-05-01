@@ -392,8 +392,7 @@ internal static class ULinkHostToolCli
             builder.Services.AddSingleton<IRealtimeRpcServerConfigurator, DefaultRealtimeRpcServerConfigurator>();
             builder.Services.AddULinkHostGateway(builder.Configuration);
 
-            var host = builder.Build()
-                .InitializeULinkHostRuntime();
+            var host = builder.Build();
             await host.RunAsync();
             """;
         return File.WriteAllTextAsync(Path.Combine(projectRoot, "Server", "Server", "Program.cs"), content + Environment.NewLine);
@@ -517,6 +516,7 @@ internal static class ULinkHostToolCli
             """
             using Microsoft.Extensions.Configuration;
             using Microsoft.Extensions.Hosting;
+            using Orleans.Hosting;
             using ULinkHost.Hosting;
 
             var host = Host.CreateDefaultBuilder(args)
@@ -527,7 +527,34 @@ internal static class ULinkHostToolCli
                         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                         .AddEnvironmentVariables();
                 })
-                .UseULinkHostOrleansSilo()
+                .UseULinkHostOrleansSilo((context, silo) =>
+                {
+                    var configuration = context.Configuration;
+                    var invariant = configuration["Orleans:Invariant"] ?? "Npgsql";
+                    var connectionString = configuration["Orleans:ConnectionString"]
+                        ?? throw new InvalidOperationException("Missing configuration: Orleans:ConnectionString");
+
+                    silo.AddAdoNetGrainStorage("users", options =>
+                    {
+                        options.Invariant = invariant;
+                        options.ConnectionString = connectionString;
+                    });
+                    silo.AddAdoNetGrainStorage("sessions", options =>
+                    {
+                        options.Invariant = invariant;
+                        options.ConnectionString = connectionString;
+                    });
+                    silo.AddAdoNetGrainStorage("matchmaking", options =>
+                    {
+                        options.Invariant = invariant;
+                        options.ConnectionString = connectionString;
+                    });
+                    silo.AddAdoNetGrainStorage("rooms", options =>
+                    {
+                        options.Invariant = invariant;
+                        options.ConnectionString = connectionString;
+                    });
+                })
                 .Build();
 
             await host.RunAsync();
@@ -560,7 +587,6 @@ internal static class ULinkHostToolCli
 
         return $@"using ULinkHost.Hosting;
 using ULinkHost.Transport;
-using ULinkRPC.Server;
 using {serializerPackage.Namespace};
 using {transportPackage.Namespace};
 
@@ -575,8 +601,9 @@ internal sealed class DefaultControlPlaneRpcServerConfigurator : IControlPlaneRp
         _options = options;
     }}
 
-    public void Configure(RpcServerHostBuilder builder)
+    public void Configure(ULinkHostRpcServerContext context)
     {{
+        var builder = context.Builder;
         builder.UseSerializer(new {serializerType}());
 {IndentBlock(RenderControlPlaneAcceptor(options.Transport), 2)}
     }}
@@ -590,7 +617,6 @@ internal sealed class DefaultControlPlaneRpcServerConfigurator : IControlPlaneRp
 
         return $@"using ULinkHost.Hosting;
 using ULinkHost.Transport;
-using ULinkRPC.Server;
 using {serializerPackage.Namespace};
 using {transportPackage.Namespace};
 
@@ -605,8 +631,9 @@ internal sealed class DefaultRealtimeRpcServerConfigurator : IRealtimeRpcServerC
         _options = options;
     }}
 
-    public void Configure(RpcServerHostBuilder builder)
+    public void Configure(ULinkHostRpcServerContext context)
     {{
+        var builder = context.Builder;
         builder.UseSerializer(new {serializerType}());
 {IndentBlock(RenderRealtimeAcceptor(options.Transport), 2)}
     }}

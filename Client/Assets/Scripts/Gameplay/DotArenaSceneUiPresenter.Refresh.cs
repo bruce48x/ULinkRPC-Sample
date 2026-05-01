@@ -29,8 +29,8 @@ namespace SampleClient.Gameplay
             if (_matchmakingPanel != null) _matchmakingPanel.SetActive(showMatchmaking);
             if (_settlementPanel != null) _settlementPanel.SetActive(showSettlement);
             if (_lobbyPanel != null) _lobbyPanel.SetActive(showLobby);
-            if (_modeSelectPanel != null) _modeSelectPanel.SetActive(snapshot.EntryMenuState == EntryMenuState.ModeSelect);
-            if (_multiplayerPanel != null) _multiplayerPanel.SetActive(snapshot.EntryMenuState == EntryMenuState.MultiplayerAuth);
+            if (_modeSelectPanel != null) _modeSelectPanel.SetActive(showEntry && snapshot.EntryMenuState == EntryMenuState.ModeSelect);
+            if (_multiplayerPanel != null) _multiplayerPanel.SetActive(showEntry && snapshot.EntryMenuState == EntryMenuState.MultiplayerAuth);
 
             SetText(_hudStatusText, $"State: {snapshot.LocalPlayerBuffText}");
             SetText(_hudPlayerText, $"玩家: {(snapshot.LocalPlayerId.Length > 0 ? snapshot.LocalPlayerId : snapshot.Account)}   分数/质量: {snapshot.LocalPlayerScoreText}   胜场: {snapshot.LocalWinCount}");

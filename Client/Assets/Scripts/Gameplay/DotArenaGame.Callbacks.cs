@@ -99,6 +99,7 @@ namespace SampleClient.Gameplay
                 worldState.Players.Count > 0)
             {
                 _flowState = FrontendFlowState.InMatch;
+                _entryMenuState = EntryMenuState.Hidden;
                 _status = _sessionMode == SessionMode.SinglePlayer
                     ? $"Single-player Match: {_localPlayerId}"
                     : $"In Match: {_localPlayerId}";

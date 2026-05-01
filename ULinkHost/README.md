@@ -13,6 +13,7 @@
 - RPC 请求如何进入系统
 - Orleans 集群如何接入
 - 连接和运行时如何承载业务模块
+- RPC 服务如何接入宿主 DI
 - 配置、宿主、传输这些通用能力如何复用
 
 `ULinkHost` 不解决的是：
@@ -54,7 +55,7 @@
 - 请求上下文
 - Orleans client/silo 装配
 - 传输接入约定
-- 运行时服务访问
+- RPC 服务 DI 接入
 - 配置读取
 - 基础运维接缝
 
@@ -101,7 +102,7 @@
 
 - 服务如何被托管
 - 模块如何接入
-- 运行时如何获取依赖
+- RPC 服务如何通过宿主 DI 获取依赖
 - Orleans 如何统一接线
 - 控制面与实时面如何挂接
 
@@ -113,11 +114,10 @@
   - 宿主启动扩展
   - Orleans client/silo 装配
   - 控制面 / 实时面 RPC hosted service
+  - RPC server 配置上下文
 - `Transport/`
   - 控制面配置
   - 实时面配置
-- `Runtime/`
-  - 宿主级运行时服务访问
 
 这些能力都是宿主层机制，不带具体游戏业务语义。
 
@@ -174,6 +174,10 @@
 
 - `IControlPlaneRpcServerConfigurator`
 - `IRealtimeRpcServerConfigurator`
+
+配置接口接收 `ULinkHostRpcServerContext`，业务项目可以通过其中的 `Builder`
+配置 serializer / transport / service binder，也可以通过 `Services` 接入宿主
+DI 容器创建 RPC service。
 
 这样 `ULinkHost` 保持宿主层中立，而业务项目可以自由选择：
 

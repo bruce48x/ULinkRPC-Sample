@@ -301,7 +301,6 @@ namespace SampleClient.Gameplay
             _realtimePlayerService = null;
             _realtimeRoomId = string.Empty;
             _realtimeMatchId = string.Empty;
-            _onDisconnected(ex);
         }
     }
 }

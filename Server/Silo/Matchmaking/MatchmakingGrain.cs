@@ -77,7 +77,7 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
             QueuedAtUtc = enqueuedAtUtc
         });
 
-        var assignments = await TryMatchAsync(enqueuedAtUtc);
+        var assignments = await TryMatchAsync(enqueuedAtUtc, allowExpiredPartialBatch: false);
         if (assignments.TryGetValue(userId, out var roomAssignment))
         {
             return new MatchmakingEnqueueResult
@@ -180,86 +180,130 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
             return;
         }
 
-        await TryMatchAsync(observedAtUtc).ConfigureAwait(false);
+        await TryMatchAsync(observedAtUtc, allowExpiredPartialBatch: true);
     }
 
-    private async Task<Dictionary<string, RoomAssignment>> TryMatchAsync(DateTime nowUtc)
+    private async Task<Dictionary<string, RoomAssignment>> TryMatchAsync(DateTime nowUtc, bool allowExpiredPartialBatch)
     {
         var assignments = new Dictionary<string, RoomAssignment>(StringComparer.Ordinal);
         var roomSize = Math.Clamp(_state.State.DefaultRoomSize <= 0 ? DefaultRoomSize : _state.State.DefaultRoomSize, 1, DefaultRoomSize);
 
-        while (_state.State.PendingTickets.Count >= roomSize)
+        while (TryTakeMatchBatch(roomSize, nowUtc, allowExpiredPartialBatch, out var batch))
         {
-            var batch = _state.State.PendingTickets.Take(roomSize).ToList();
-            _state.State.PendingTickets.RemoveRange(0, roomSize);
-
-            var roomId = $"room-{Guid.NewGuid():N}";
-            var matchId = $"match-{Guid.NewGuid():N}";
-            var runtimeGateway = await ResolveRuntimeGatewayAsync(batch).ConfigureAwait(false);
-            var playerAssignments = batch.Select((ticket, seatIndex) => new PlayerRoomAssignment
+            try
             {
-                UserId = ticket.UserId,
-                RoomId = roomId,
-                MatchId = matchId,
-                SeatIndex = seatIndex,
-                SessionToken = ticket.SessionToken,
-                ConnectionId = "",
-                AssignedAtUtc = nowUtc,
-                RuntimeGateway = CloneGateway(runtimeGateway)
-            }).ToList();
+                var roomId = $"room-{Guid.NewGuid():N}";
+                var matchId = $"match-{Guid.NewGuid():N}";
+                var runtimeGateway = await ResolveRuntimeGatewayAsync(batch);
+                var playerAssignments = batch.Select((ticket, seatIndex) => new PlayerRoomAssignment
+                {
+                    UserId = ticket.UserId,
+                    RoomId = roomId,
+                    MatchId = matchId,
+                    SeatIndex = seatIndex,
+                    SessionToken = ticket.SessionToken,
+                    ConnectionId = "",
+                    AssignedAtUtc = nowUtc,
+                    RuntimeGateway = CloneGateway(runtimeGateway)
+                }).ToList();
 
-            var roomGrain = GrainFactory.GetGrain<IRoomGrain>(roomId);
-            var createResult = await roomGrain.CreateAsync(new RoomCreateRequest
-            {
-                RoomId = roomId,
-                MatchId = matchId,
-                CreatedByUserId = batch[0].UserId,
-                CreatedAtUtc = nowUtc,
-                MaxPlayers = roomSize,
-                Players = playerAssignments.Select(CloneAssignment).ToList(),
-                RuntimeGateway = CloneGateway(runtimeGateway)
-            });
+                var roomGrain = GrainFactory.GetGrain<IRoomGrain>(roomId);
+                var createResult = await roomGrain.CreateAsync(new RoomCreateRequest
+                {
+                    RoomId = roomId,
+                    MatchId = matchId,
+                    CreatedByUserId = batch[0].UserId,
+                    CreatedAtUtc = nowUtc,
+                    MaxPlayers = roomSize,
+                    Players = playerAssignments.Select(CloneAssignment).ToList(),
+                    RuntimeGateway = CloneGateway(runtimeGateway)
+                });
 
-            if (!createResult.Succeeded)
-            {
-                _state.State.PendingTickets.InsertRange(0, batch);
-                break;
+                if (!createResult.Succeeded)
+                {
+                    RestoreBatch(batch);
+                    break;
+                }
+
+                await roomGrain.StartAsync(new RoomStartRequest
+                {
+                    RoomId = roomId,
+                    StartedByUserId = batch[0].UserId,
+                    StartedAtUtc = nowUtc
+                });
+
+                foreach (var playerAssignment in playerAssignments)
+                {
+                    var sessionGrain = GrainFactory.GetGrain<IPlayerSessionGrain>(playerAssignment.UserId);
+                    await sessionGrain.AssignRoomAsync(playerAssignment);
+                }
+
+                var roomAssignment = new RoomAssignment
+                {
+                    RoomId = roomId,
+                    MatchId = matchId,
+                    AssignedAtUtc = nowUtc,
+                    Players = playerAssignments.Select(CloneAssignment).ToList(),
+                    RuntimeGateway = CloneGateway(runtimeGateway)
+                };
+
+                foreach (var playerAssignment in playerAssignments)
+                {
+                    assignments[playerAssignment.UserId] = roomAssignment;
+                }
+
+                _state.State.LastMatchId = matchId;
+                _state.State.LastRoomId = roomId;
+                _state.State.LastUpdatedAtUtc = nowUtc;
             }
-
-            await roomGrain.StartAsync(new RoomStartRequest
+            catch
             {
-                RoomId = roomId,
-                StartedByUserId = batch[0].UserId,
-                StartedAtUtc = nowUtc
-            });
-
-            foreach (var playerAssignment in playerAssignments)
-            {
-                var sessionGrain = GrainFactory.GetGrain<IPlayerSessionGrain>(playerAssignment.UserId);
-                await sessionGrain.AssignRoomAsync(playerAssignment);
+                RestoreBatch(batch);
+                throw;
             }
-
-            var roomAssignment = new RoomAssignment
-            {
-                RoomId = roomId,
-                MatchId = matchId,
-                AssignedAtUtc = nowUtc,
-                Players = playerAssignments.Select(CloneAssignment).ToList(),
-                RuntimeGateway = CloneGateway(runtimeGateway)
-            };
-
-            foreach (var playerAssignment in playerAssignments)
-            {
-                assignments[playerAssignment.UserId] = roomAssignment;
-            }
-
-            _state.State.LastMatchId = matchId;
-            _state.State.LastRoomId = roomId;
-            _state.State.LastUpdatedAtUtc = nowUtc;
         }
 
         await _state.WriteStateAsync();
         return assignments;
+    }
+
+    private void RestoreBatch(List<MatchmakingQueueTicket> batch)
+    {
+        _state.State.PendingTickets.InsertRange(0, batch);
+        SortQueue();
+    }
+
+    private bool TryTakeMatchBatch(
+        int roomSize,
+        DateTime nowUtc,
+        bool allowExpiredPartialBatch,
+        out List<MatchmakingQueueTicket> batch)
+    {
+        batch = [];
+        if (_state.State.PendingTickets.Count == 0)
+        {
+            return false;
+        }
+
+        var batchSize = 0;
+        if (_state.State.PendingTickets.Count >= roomSize)
+        {
+            batchSize = roomSize;
+        }
+        else if (allowExpiredPartialBatch &&
+                 nowUtc - _state.State.PendingTickets[0].EnqueuedAtUtc >= MaxFrontQueueWait)
+        {
+            batchSize = _state.State.PendingTickets.Count;
+        }
+
+        if (batchSize <= 0)
+        {
+            return false;
+        }
+
+        batch = _state.State.PendingTickets.Take(batchSize).ToList();
+        _state.State.PendingTickets.RemoveRange(0, batchSize);
+        return true;
     }
 
     private void EnsureState()
@@ -389,8 +433,7 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
         foreach (var ticket in batch)
         {
             var snapshot = await GrainFactory.GetGrain<IPlayerSessionGrain>(ticket.UserId)
-                .GetSnapshotAsync()
-                .ConfigureAwait(false);
+                .GetSnapshotAsync();
             if (HasValidGateway(snapshot.ControlGateway))
             {
                 return CloneGateway(snapshot.ControlGateway);

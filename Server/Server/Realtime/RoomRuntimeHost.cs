@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Orleans.Contracts.Rooms;
 using Shared.Interfaces;
 
@@ -21,7 +22,7 @@ internal sealed class RoomRuntimeHost
         {
             if (!_runtimes.TryGetValue(room.RoomId, out runtime!))
             {
-                runtime = new RoomRuntime(room, _services);
+                runtime = ActivatorUtilities.CreateInstance<RoomRuntime>(_services, room);
                 _runtimes.Add(room.RoomId, runtime);
             }
         }
