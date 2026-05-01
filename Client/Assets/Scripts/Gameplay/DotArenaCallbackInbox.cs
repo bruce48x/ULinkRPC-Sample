@@ -130,7 +130,11 @@ namespace SampleClient.Gameplay
                     RespawnRemainingSeconds = player.RespawnRemainingSeconds,
                     Score = player.Score,
                     SpeedBoostRemainingSeconds = player.SpeedBoostRemainingSeconds,
-                    KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds
+                    KnockbackBoostRemainingSeconds = player.KnockbackBoostRemainingSeconds,
+                    ShieldRemainingSeconds = player.ShieldRemainingSeconds,
+                    Mass = player.Mass,
+                    Radius = player.Radius,
+                    MoveSpeed = player.MoveSpeed
                 });
             }
 

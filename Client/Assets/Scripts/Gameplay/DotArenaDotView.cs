@@ -71,7 +71,10 @@ namespace SampleClient.Gameplay
             _outlineRenderer.color = alive
                 ? PlayerOutlineColor
                 : new Color(PlayerOutlineColor.r, PlayerOutlineColor.g, PlayerOutlineColor.b, 0.45f);
-            var diameter = Mathf.Max(0.4f, radius * 2f);
+            var serverRadius = !float.IsNaN(radius) && !float.IsInfinity(radius) && radius > 0f
+                ? radius
+                : GameplayConfig.PlayerVisualRadius;
+            var diameter = Mathf.Max(0.4f, serverRadius * 2f);
             Root.transform.localScale = new Vector3(diameter, diameter, 1f);
             var outlineScale = 1.14f;
             _outlineRenderer.transform.localScale = new Vector3(outlineScale, outlineScale, 1f);

@@ -54,7 +54,7 @@ namespace SampleClient.Gameplay
             }
 
             UpdateCameraFollow();
-            _overlayPresenter.UpdateOverlayViews(_sceneUiPresenter, _views, PlayerVisualDiameter);
+            _overlayPresenter.UpdateOverlayViews(_sceneUiPresenter, _views, _renderStates);
 
             var pickupScale = GameplayConfig.PickupCollisionRadius * 2f;
             foreach (var pickupView in _pickupViews)

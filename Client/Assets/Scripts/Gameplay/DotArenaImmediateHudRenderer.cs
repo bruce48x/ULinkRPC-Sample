@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using TMPro;
 using ULinkRPC.Client;
 using UnityEngine;
+using static SampleClient.Gameplay.DotArenaTuning;
 
 namespace SampleClient.Gameplay
 {
@@ -21,7 +22,6 @@ namespace SampleClient.Gameplay
         public int Port { get; set; }
         public string Path { get; set; }
         public string EventMessage { get; set; }
-        public float PlayerVisualDiameter { get; set; }
     }
 
     internal static class DotArenaImmediateHudRenderer
@@ -71,13 +71,12 @@ namespace SampleClient.Gameplay
             GUI.Label(new Rect(contentRect.x, contentRect.y + 124f, contentRect.width, 18f),
                 $"事件: {snapshot.EventMessage}", bodyStyle);
 
-            DrawPlayerOverlays(views, renderStates, snapshot.PlayerVisualDiameter);
+            DrawPlayerOverlays(views, renderStates);
         }
 
         private static void DrawPlayerOverlays(
             IReadOnlyDictionary<string, DotView> views,
-            IReadOnlyDictionary<string, PlayerRenderState> renderStates,
-            float playerVisualDiameter)
+            IReadOnlyDictionary<string, PlayerRenderState> renderStates)
         {
             var camera = Camera.main;
             if (camera == null || views.Count == 0)
@@ -86,28 +85,6 @@ namespace SampleClient.Gameplay
             }
 
             var pixelsPerWorldUnit = Screen.height / (camera.orthographicSize * 2f);
-            var diameterPixels = playerVisualDiameter * pixelsPerWorldUnit;
-            var labelWidth = Mathf.Max(96f, diameterPixels * 2f);
-            var nameHeight = Mathf.Max(18f, diameterPixels * 0.36f);
-            var scoreHeight = Mathf.Max(16f, diameterPixels * 0.3f);
-
-            var nameStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
-                fontSize = Mathf.RoundToInt(Mathf.Clamp(diameterPixels * 0.24f, 14f, 22f)),
-                clipping = TextClipping.Overflow,
-                normal = { textColor = new Color(0.94f, 0.97f, 1f, 1f) }
-            };
-
-            var scoreStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
-                fontSize = Mathf.RoundToInt(Mathf.Clamp(diameterPixels * 0.22f, 13f, 20f)),
-                clipping = TextClipping.Overflow,
-                normal = { textColor = new Color(1f, 0.97f, 0.78f, 1f) }
-            };
 
             foreach (var entry in views)
             {
@@ -122,6 +99,32 @@ namespace SampleClient.Gameplay
                 {
                     continue;
                 }
+
+                var serverRadius = !float.IsNaN(renderState.Radius) && !float.IsInfinity(renderState.Radius) && renderState.Radius > 0f
+                    ? renderState.Radius
+                    : GameplayConfig.PlayerVisualRadius;
+                var diameterPixels = serverRadius * 2f * pixelsPerWorldUnit;
+                var labelWidth = Mathf.Max(96f, diameterPixels * 2f);
+                var nameHeight = Mathf.Max(18f, diameterPixels * 0.36f);
+                var scoreHeight = Mathf.Max(16f, diameterPixels * 0.3f);
+
+                var nameStyle = new GUIStyle(GUI.skin.label)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Bold,
+                    fontSize = Mathf.RoundToInt(Mathf.Clamp(diameterPixels * 0.24f, 14f, 22f)),
+                    clipping = TextClipping.Overflow,
+                    normal = { textColor = new Color(0.94f, 0.97f, 1f, 1f) }
+                };
+
+                var scoreStyle = new GUIStyle(GUI.skin.label)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Bold,
+                    fontSize = Mathf.RoundToInt(Mathf.Clamp(diameterPixels * 0.22f, 13f, 20f)),
+                    clipping = TextClipping.Overflow,
+                    normal = { textColor = new Color(1f, 0.97f, 0.78f, 1f) }
+                };
 
                 var centerX = screenPosition.x;
                 var centerY = Screen.height - screenPosition.y;

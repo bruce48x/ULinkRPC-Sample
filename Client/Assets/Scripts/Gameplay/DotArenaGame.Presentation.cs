@@ -96,8 +96,6 @@ namespace SampleClient.Gameplay
         private static float ArenaHalfHeight => GameplayConfig.ArenaHalfExtents.y;
         private float CurrentArenaHalfWidth => _currentArenaHalfExtents.x;
         private float CurrentArenaHalfHeight => _currentArenaHalfExtents.y;
-        private static float PlayerVisualDiameter => GameplayConfig.PlayerVisualRadius * 2f;
-
         private void UpdateArenaVisuals()
         {
             if (_safeZoneRenderer != null)

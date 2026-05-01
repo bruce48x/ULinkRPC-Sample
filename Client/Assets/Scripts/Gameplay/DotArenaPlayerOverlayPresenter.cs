@@ -70,7 +70,10 @@ namespace SampleClient.Gameplay
             _views.Add(playerId, new PlayerOverlayView(root, rootRect, nameText, scoreText));
         }
 
-        public void UpdateOverlayViews(DotArenaSceneUiPresenter sceneUiPresenter, IReadOnlyDictionary<string, DotView> worldViews, float playerVisualDiameter)
+        public void UpdateOverlayViews(
+            DotArenaSceneUiPresenter sceneUiPresenter,
+            IReadOnlyDictionary<string, DotView> worldViews,
+            IReadOnlyDictionary<string, PlayerRenderState> renderStates)
         {
             if (sceneUiPresenter.OverlayLayer == null)
             {
@@ -89,14 +92,11 @@ namespace SampleClient.Gameplay
             }
 
             var pixelsPerWorldUnit = Screen.height / (camera.orthographicSize * 2f);
-            var diameterPixels = playerVisualDiameter * pixelsPerWorldUnit;
-            var labelWidth = Mathf.Max(96f, diameterPixels * 2f);
-            var nameHeight = Mathf.Max(18f, diameterPixels * 0.36f);
-            var scoreHeight = Mathf.Max(16f, diameterPixels * 0.3f);
 
             foreach (var entry in _views)
             {
-                if (!worldViews.TryGetValue(entry.Key, out var view))
+                if (!worldViews.TryGetValue(entry.Key, out var view) ||
+                    !renderStates.TryGetValue(entry.Key, out var renderState))
                 {
                     entry.Value.Root.SetActive(false);
                     continue;
@@ -110,6 +110,14 @@ namespace SampleClient.Gameplay
                 }
 
                 entry.Value.Root.SetActive(true);
+                var serverRadius = !float.IsNaN(renderState.Radius) && !float.IsInfinity(renderState.Radius) && renderState.Radius > 0f
+                    ? renderState.Radius
+                    : GameplayConfig.PlayerVisualRadius;
+                var diameterPixels = serverRadius * 2f * pixelsPerWorldUnit;
+                var labelWidth = Mathf.Max(96f, diameterPixels * 2f);
+                var nameHeight = Mathf.Max(18f, diameterPixels * 0.36f);
+                var scoreHeight = Mathf.Max(16f, diameterPixels * 0.3f);
+
                 entry.Value.RootRect.anchoredPosition = new Vector2(screenPosition.x, screenPosition.y);
                 entry.Value.RootRect.sizeDelta = new Vector2(labelWidth, nameHeight + scoreHeight + 4f);
 
