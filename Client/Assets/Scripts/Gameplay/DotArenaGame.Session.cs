@@ -24,7 +24,7 @@ namespace SampleClient.Gameplay
 
             try
             {
-                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, _account, _password, this, _cts.Token);
+                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, _account, _password, guestLogin: false, this, _cts.Token);
 
                 if (reply.Code != 0)
                 {
@@ -68,6 +68,79 @@ namespace SampleClient.Gameplay
                 _status = feedback.Status;
                 _eventMessage = feedback.Message;
                 Debug.LogError($"[DotArena] Connect failed: {ex}");
+                await DisposeConnectionAsync();
+                _localMatch = null;
+            }
+            finally
+            {
+                if (_pendingUiRequest == PendingUiRequest.Login)
+                {
+                    _pendingUiRequest = PendingUiRequest.None;
+                }
+            }
+        }
+
+        private async Task ConnectAsGuestAsync()
+        {
+            if (IsConnecting || IsConnected || _sessionMode == SessionMode.SinglePlayer)
+            {
+                _pendingUiRequest = PendingUiRequest.None;
+                return;
+            }
+
+            _flowState = FrontendFlowState.Entry;
+            _entryMenuState = EntryMenuState.MultiplayerAuth;
+            _status = $"正在连接 {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}";
+            _eventMessage = "正在申请游客账号";
+
+            try
+            {
+                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, string.Empty, string.Empty, guestLogin: true, this, _cts.Token);
+
+                if (reply.Code != 0)
+                {
+                    _hasAuthenticatedProfile = false;
+                    _authenticatedPlayerId = string.Empty;
+                    _localWinCount = 0;
+                    _localPlayerId = string.Empty;
+                    _localMatch = null;
+                    _sessionMode = SessionMode.None;
+                    _status = $"游客登录失败, code={reply.Code}";
+                    _eventMessage = "无法申请游客账号，请稍后重试";
+                    return;
+                }
+
+                _account = string.IsNullOrWhiteSpace(reply.Account) ? reply.PlayerId : reply.Account;
+                _password = reply.Password;
+                _localPlayerId = string.IsNullOrWhiteSpace(reply.PlayerId) ? _account : reply.PlayerId;
+                _localMatch = null;
+                EnsureMetaState(_localPlayerId);
+                _localWinCount = Math.Max(0, reply.WinCount);
+                _hasAuthenticatedProfile = true;
+                _authenticatedPlayerId = _localPlayerId;
+                _sessionMode = SessionMode.Multiplayer;
+                _flowState = FrontendFlowState.Entry;
+                _entryMenuState = EntryMenuState.MultiplayerLobby;
+                _status = $"联机大厅: {_localPlayerId}";
+                _eventMessage = "游客登录成功，可点击 Start Match 进入排队";
+                Debug.Log($"[DotArena] Connected as guest {_localPlayerId} -> {Rpc.WebSocketRpcClientFactory.BuildUrl(_host, _port, _path)}");
+                PushEvent("游客登录成功，可在联机大厅开始匹配");
+            }
+            catch (OperationCanceledException)
+            {
+                _flowState = FrontendFlowState.Entry;
+                _entryMenuState = EntryMenuState.MultiplayerAuth;
+                _status = "Connection canceled";
+                _eventMessage = "游客登录已取消";
+            }
+            catch (Exception ex)
+            {
+                var feedback = DotArenaMultiplayerFlow.BuildConnectionFailure(ex);
+                _flowState = FrontendFlowState.Entry;
+                _entryMenuState = EntryMenuState.MultiplayerAuth;
+                _status = feedback.Status;
+                _eventMessage = feedback.Message;
+                Debug.LogError($"[DotArena] Guest connect failed: {ex}");
                 await DisposeConnectionAsync();
                 _localMatch = null;
             }

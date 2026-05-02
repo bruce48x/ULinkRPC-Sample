@@ -42,8 +42,8 @@ namespace Rpc.Testing
         [SerializeField]
         private RpcEndpointSettings _endpoint = RpcEndpointSettings.CreateWebSocket("127.0.0.1", 20000);
 
-        [Header("Login")] public string Account = "a";
-        public string Password = "b";
+        [Header("Login")] public string Account = "";
+        public string Password = "";
 
         public float RequestIntervalSeconds = 1f;
         public bool AutoConnect = true;
@@ -103,8 +103,19 @@ namespace Rpc.Testing
                 var reply = await _player.LoginAsync(new LoginRequest
                 {
                     Account = Account,
-                    Password = Password
+                    Password = Password,
+                    GuestLogin = string.IsNullOrWhiteSpace(Account) || string.IsNullOrWhiteSpace(Password)
                 });
+
+                if (!string.IsNullOrWhiteSpace(reply.Account))
+                {
+                    Account = reply.Account;
+                }
+
+                if (!string.IsNullOrWhiteSpace(reply.Password))
+                {
+                    Password = reply.Password;
+                }
 
                 _playerId = reply.PlayerId;
                 Debug.Log($"[WS] Login ok: account={Account}, playerId={reply.PlayerId}, code={reply.Code}, token={reply.Token}");

@@ -41,6 +41,7 @@ namespace SampleClient.Gameplay
             string path,
             string account,
             string password,
+            bool guestLogin,
             IPlayerCallback callback,
             CancellationToken cancellationToken)
         {
@@ -64,7 +65,8 @@ namespace SampleClient.Gameplay
                 var reply = await _controlPlayerService.LoginAsync(new LoginRequest
                 {
                     Account = account,
-                    Password = password
+                    Password = password,
+                    GuestLogin = guestLogin
                 });
 
                 if (reply.Code != 0)

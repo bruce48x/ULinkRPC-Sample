@@ -15,8 +15,8 @@ namespace SampleClient.Gameplay
         [SerializeField] private string _host = "127.0.0.1";
         [SerializeField] private int _port = 20000;
         [SerializeField] private string _path = "/ws";
-        [SerializeField] private string _account = "a";
-        [SerializeField] private string _password = "b";
+        [SerializeField] private string _account = "";
+        [SerializeField] private string _password = "";
 
         private readonly CancellationTokenSource _cts = new();
         private readonly DotArenaCallbackInbox _callbackInbox = new();

@@ -34,6 +34,11 @@ namespace SampleClient.Gameplay
             UiSurface.OnUiConnectRequested();
         }
 
+        public void OnUiGuestLoginRequested()
+        {
+            UiSurface.OnUiGuestLoginRequested();
+        }
+
         public void OnUiRematchRequested()
         {
             UiSurface.OnUiRematchRequested();

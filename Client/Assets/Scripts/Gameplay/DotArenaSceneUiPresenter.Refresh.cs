@@ -83,12 +83,14 @@ namespace SampleClient.Gameplay
             SetText(_invincibleSinglePlayerButtonText, "单机：无敌模式");
             SetText(_multiplayerButtonText, "联机");
             SetText(_matchButtonText, snapshot.IsConnecting ? "登录中..." : "登录");
+            SetText(_guestLoginButtonText, snapshot.IsConnecting ? "申请中..." : "游客登录");
             SetText(_backButtonText, "返回");
 
             if (_singlePlayerButton != null) _singlePlayerButton.interactable = !snapshot.IsBusy;
             if (_invincibleSinglePlayerButton != null) _invincibleSinglePlayerButton.interactable = !snapshot.IsBusy;
             if (_multiplayerButton != null) _multiplayerButton.interactable = !snapshot.IsBusy;
             if (_matchButton != null) _matchButton.interactable = !snapshot.IsBusy;
+            if (_guestLoginButton != null) _guestLoginButton.interactable = !snapshot.IsBusy;
             if (_backButton != null) _backButton.interactable = !snapshot.IsBusy;
             if (_matchmakingCancelButton != null) _matchmakingCancelButton.interactable = !snapshot.IsBusy;
             if (_lobbyProfileButton != null) _lobbyProfileButton.interactable = !snapshot.IsBusy && !_lobbyUi.IsSelected(MetaTab.Lobby);

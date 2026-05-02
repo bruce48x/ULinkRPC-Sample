@@ -29,6 +29,7 @@ namespace SampleClient.Gameplay
                     OnUiInvincibleSinglePlayerSelected,
                     OnUiMultiplayerSelected,
                     OnUiConnectRequested,
+                    OnUiGuestLoginRequested,
                     OnUiBackToModeSelect,
                     OnUiCancelMatchmakingRequested,
                     OnUiAccountChanged,
@@ -121,6 +122,22 @@ namespace SampleClient.Gameplay
                 _owner._eventMessage = "正在登录联机账号";
                 RefreshSceneUi();
                 _ = _owner.ConnectAsync();
+            }
+
+            public void OnUiGuestLoginRequested()
+            {
+                if (_owner.IsUiBusy)
+                {
+                    return;
+                }
+
+                _owner._pendingUiRequest = PendingUiRequest.Login;
+                _owner._flowState = FrontendFlowState.Entry;
+                _owner._entryMenuState = EntryMenuState.MultiplayerAuth;
+                _owner._status = $"正在连接 {Rpc.WebSocketRpcClientFactory.BuildUrl(_owner._host, _owner._port, _owner._path)}";
+                _owner._eventMessage = "正在申请游客账号";
+                RefreshSceneUi();
+                _ = _owner.ConnectAsGuestAsync();
             }
 
             public void OnUiRematchRequested()

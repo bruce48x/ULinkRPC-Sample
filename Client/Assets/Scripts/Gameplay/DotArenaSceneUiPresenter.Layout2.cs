@@ -51,6 +51,49 @@ namespace SampleClient.Gameplay
             }
         }
 
+        private void EnsureMultiplayerAuthActionButtons()
+        {
+            if (_multiplayerPanel == null)
+            {
+                return;
+            }
+
+            EnsureMultiplayerAuthButton("MatchButton", new Vector2(-70f, -216f), new Vector2(120f, 30f), "登录");
+            EnsureMultiplayerAuthButton("BackButton", new Vector2(70f, -216f), new Vector2(120f, 30f), "返回");
+            EnsureMultiplayerAuthButton("GuestLoginButton", new Vector2(0f, -250f), new Vector2(260f, 30f), "游客登录");
+        }
+
+        private void EnsureMultiplayerAuthButton(string name, Vector2 anchoredPosition, Vector2 size, string label)
+        {
+            var button = FindSceneUiButton($"SceneUI/EntryPanel/MultiplayerPanel/{name}");
+            if (button == null)
+            {
+                CreateSettlementButton(_multiplayerPanel!.transform, name, anchoredPosition, size, label);
+                button = FindSceneUiButton($"SceneUI/EntryPanel/MultiplayerPanel/{name}");
+            }
+
+            if (button == null)
+            {
+                return;
+            }
+
+            var rect = button.GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0.5f, 1f);
+                rect.anchorMax = new Vector2(0.5f, 1f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.anchoredPosition = anchoredPosition;
+                rect.sizeDelta = size;
+            }
+
+            var text = FindSceneUiText($"SceneUI/EntryPanel/MultiplayerPanel/{name}/Label");
+            if (text != null)
+            {
+                text.text = label;
+            }
+        }
+
         private void EnsureLobbyQuickActionsText()
         {
             if (_sceneUiRoot == null || _lobbyPanel == null || _lobbyQuickActionsText != null)

@@ -113,6 +113,7 @@ namespace SampleClient.Gameplay
         private Button? _invincibleSinglePlayerButton;
         private Button? _multiplayerButton;
         private Button? _matchButton;
+        private Button? _guestLoginButton;
         private Button? _backButton;
         private GameObject? _settlementPanel;
         private TMP_Text? _settlementTitleText;
@@ -128,6 +129,7 @@ namespace SampleClient.Gameplay
         private TMP_Text? _invincibleSinglePlayerButtonText;
         private TMP_Text? _multiplayerButtonText;
         private TMP_Text? _matchButtonText;
+        private TMP_Text? _guestLoginButtonText;
         private TMP_Text? _backButtonText;
         private TMP_InputField? _accountInputField;
         private TMP_InputField? _passwordInputField;
@@ -144,6 +146,7 @@ namespace SampleClient.Gameplay
             Action onInvincibleSinglePlayerSelected,
             Action onMultiplayerSelected,
             Action onConnectRequested,
+            Action onGuestLoginRequested,
             Action onBackToModeSelect,
             Action onCancelMatchmakingRequested,
             Action<string> onAccountChanged,
@@ -176,6 +179,7 @@ namespace SampleClient.Gameplay
             _modeSelectPanel = FindSceneUiObject("SceneUI/EntryPanel/ModeSelectPanel");
             _multiplayerPanel = FindSceneUiObject("SceneUI/EntryPanel/MultiplayerPanel");
             EnsureModeSelectPanelContents();
+            EnsureMultiplayerAuthActionButtons();
             EnsureSettlementPanel();
 
             _hudTitleText = FindSceneUiText("SceneUI/HUDPanel/TitleText");
@@ -234,12 +238,14 @@ namespace SampleClient.Gameplay
             _invincibleSinglePlayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/InvincibleSinglePlayerButton");
             _multiplayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton");
             _matchButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/MatchButton");
+            _guestLoginButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/GuestLoginButton");
             _backButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/BackButton");
 
             _singlePlayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/SinglePlayerButton/Label");
             _invincibleSinglePlayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/InvincibleSinglePlayerButton/Label");
             _multiplayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton/Label");
             _matchButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/MatchButton/Label");
+            _guestLoginButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/GuestLoginButton/Label");
             _backButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/BackButton/Label");
 
             _accountInputField = FindSceneUiInputField("SceneUI/EntryPanel/MultiplayerPanel/AccountInput");
@@ -280,6 +286,12 @@ namespace SampleClient.Gameplay
             {
                 _matchButton.onClick.RemoveAllListeners();
                 _matchButton.onClick.AddListener(() => onConnectRequested());
+            }
+
+            if (_guestLoginButton != null)
+            {
+                _guestLoginButton.onClick.RemoveAllListeners();
+                _guestLoginButton.onClick.AddListener(() => onGuestLoginRequested());
             }
 
             if (_backButton != null)

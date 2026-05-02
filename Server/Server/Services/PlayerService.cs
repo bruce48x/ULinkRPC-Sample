@@ -4,6 +4,7 @@ using Orleans.Contracts.Sessions;
 using Server.Realtime;
 using Shared.Interfaces;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
 
 namespace Server.Services;
 
@@ -56,7 +57,15 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
     {
         ThrowIfDisposed();
 
-        if (string.IsNullOrWhiteSpace(req.Account) || string.IsNullOrWhiteSpace(req.Password))
+        var account = req.Account;
+        var password = req.Password;
+        if (req.GuestLogin)
+        {
+            account = CreateGuestAccount();
+            password = CreateGuestPassword();
+        }
+
+        if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
         {
             return new LoginReply { Code = 1 };
         }
@@ -64,13 +73,13 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
         UserLoginResult loginResult;
         try
         {
-            loginResult = await _clusterClient.GetGrain<IUserGrain>(req.Account)
-                .LoginAsync(req.Password)
+            loginResult = await _clusterClient.GetGrain<IUserGrain>(account)
+                .LoginAsync(password)
                 .ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Login rejected for account {Account}.", req.Account);
+            _logger.LogWarning(ex, "Login rejected for account {Account}.", account);
             return new LoginReply { Code = 2 };
         }
 
@@ -95,7 +104,9 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
             Code = 0,
             Token = loginResult.SessionToken,
             PlayerId = loginResult.UserId,
-            WinCount = loginResult.WinCount
+            WinCount = loginResult.WinCount,
+            Account = account,
+            Password = req.GuestLogin ? password : string.Empty
         };
     }
 
@@ -314,5 +325,15 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
             Port = gateway.Port,
             Path = gateway.Path
         };
+    }
+
+    private static string CreateGuestAccount()
+    {
+        return $"guest-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{RandomNumberGenerator.GetHexString(6).ToLowerInvariant()}";
+    }
+
+    private static string CreateGuestPassword()
+    {
+        return RandomNumberGenerator.GetHexString(16).ToLowerInvariant();
     }
 }

@@ -53,6 +53,8 @@ namespace Shared.Interfaces
         public string Account { get; set; } = "";
         [MemoryPackOrder(1)]
         public string Password { get; set; } = "";
+        [MemoryPackOrder(2)]
+        public bool GuestLogin { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -66,6 +68,10 @@ namespace Shared.Interfaces
         public string PlayerId { get; set; } = "";
         [MemoryPackOrder(3)]
         public int WinCount { get; set; }
+        [MemoryPackOrder(4)]
+        public string Account { get; set; } = "";
+        [MemoryPackOrder(5)]
+        public string Password { get; set; } = "";
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
