@@ -5,4 +5,5 @@
   <Project Path="Server/Server.csproj" />
   <Project Path="Orleans.Contracts/Orleans.Contracts.csproj" />
   <Project Path="Silo/Silo.csproj" />
+  <Project Path="../Tests/BusinessLogic.Tests/BusinessLogic.Tests.csproj" />
 </Solution>

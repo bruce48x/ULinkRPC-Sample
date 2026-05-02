@@ -1,4 +1,5 @@
 using Orleans.Contracts.Rooms;
+using Orleans.Contracts.Sessions;
 using Orleans.Contracts.Users;
 using Server.Services;
 using Shared.Gameplay;
@@ -245,6 +246,15 @@ internal sealed class RoomRuntime : IAsyncDisposable
         foreach (var registration in registrations)
         {
             _sessionDirectory.ClearRoom(registration.PlayerId, _roomId);
+            await _clusterClient.GetGrain<IPlayerSessionGrain>(registration.PlayerId)
+                .ClearRoomAsync(new PlayerRoomClearRequest
+                {
+                    UserId = registration.PlayerId,
+                    RoomId = _roomId,
+                    ClearedAtUtc = DateTime.UtcNow,
+                    Reason = "Match completed."
+                })
+                .ConfigureAwait(false);
         }
 
         if (!string.IsNullOrWhiteSpace(winnerPlayerId))

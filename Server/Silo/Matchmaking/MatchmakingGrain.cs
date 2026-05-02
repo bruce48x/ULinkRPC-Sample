@@ -10,7 +10,6 @@ namespace ULinkRPC.Sample.Silo.Matchmaking;
 public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
 {
     private const int DefaultRoomSize = 10;
-    private static readonly TimeSpan MaxFrontQueueWait = TimeSpan.FromSeconds(5);
     private readonly IPersistentState<MatchmakingState> _state;
 
     public MatchmakingGrain([PersistentState("matchmaking", "matchmaking")] IPersistentState<MatchmakingState> state)
@@ -178,9 +177,8 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
         }
 
         var observedAtUtc = NormalizeUtc(request.ObservedAtUtc);
-        var roomSize = Math.Clamp(_state.State.DefaultRoomSize <= 0 ? DefaultRoomSize : _state.State.DefaultRoomSize, 1, DefaultRoomSize);
-        var waitedLongEnough = observedAtUtc - _state.State.PendingTickets[0].EnqueuedAtUtc >= MaxFrontQueueWait;
-        if (_state.State.PendingTickets.Count < roomSize && !waitedLongEnough)
+        var roomSize = MatchmakingQueuePolicy.NormalizeRoomSize(_state.State.DefaultRoomSize);
+        if (MatchmakingQueuePolicy.GetMatchBatchSize(_state.State.PendingTickets, roomSize, observedAtUtc, allowExpiredPartialBatch: true) <= 0)
         {
             return;
         }
@@ -191,7 +189,7 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
     private async Task<Dictionary<string, RoomAssignment>> TryMatchAsync(DateTime nowUtc, bool allowExpiredPartialBatch)
     {
         var assignments = new Dictionary<string, RoomAssignment>(StringComparer.Ordinal);
-        var roomSize = Math.Clamp(_state.State.DefaultRoomSize <= 0 ? DefaultRoomSize : _state.State.DefaultRoomSize, 1, DefaultRoomSize);
+        var roomSize = MatchmakingQueuePolicy.NormalizeRoomSize(_state.State.DefaultRoomSize);
 
         while (TryTakeMatchBatch(roomSize, nowUtc, allowExpiredPartialBatch, out var batch))
         {
@@ -290,19 +288,11 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
             return false;
         }
 
-        var batchSize = 0;
-        if (_state.State.PendingTickets.Count >= roomSize)
-        {
-            batchSize = roomSize;
-        }
-        else if (allowExpiredPartialBatch &&
-                 nowUtc - _state.State.PendingTickets[0].EnqueuedAtUtc >= MaxFrontQueueWait)
-        {
-            batchSize = _state.State.PendingTickets
-                .TakeWhile(ticket => nowUtc - ticket.EnqueuedAtUtc >= MaxFrontQueueWait)
-                .Count();
-        }
-
+        var batchSize = MatchmakingQueuePolicy.GetMatchBatchSize(
+            _state.State.PendingTickets,
+            roomSize,
+            nowUtc,
+            allowExpiredPartialBatch);
         if (batchSize <= 0)
         {
             return false;
