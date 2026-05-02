@@ -8,6 +8,49 @@ namespace SampleClient.Gameplay
 {
     internal sealed partial class DotArenaSceneUiPresenter
     {
+        private void EnsureModeSelectPanelContents()
+        {
+            if (_modeSelectPanel == null)
+            {
+                return;
+            }
+
+            EnsureModeSelectButton("SinglePlayerButton", new Vector2(0f, -124f), "单机：普通模式");
+            EnsureModeSelectButton("InvincibleSinglePlayerButton", new Vector2(0f, -172f), "单机：无敌模式");
+            EnsureModeSelectButton("MultiplayerButton", new Vector2(0f, -220f), "联机");
+        }
+
+        private void EnsureModeSelectButton(string name, Vector2 anchoredPosition, string label)
+        {
+            var button = FindSceneUiButton($"SceneUI/EntryPanel/ModeSelectPanel/{name}");
+            if (button == null)
+            {
+                CreateSettlementButton(_modeSelectPanel!.transform, name, anchoredPosition, new Vector2(260f, 38f), label);
+                button = FindSceneUiButton($"SceneUI/EntryPanel/ModeSelectPanel/{name}");
+            }
+
+            if (button == null)
+            {
+                return;
+            }
+
+            var rect = button.GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0.5f, 1f);
+                rect.anchorMax = new Vector2(0.5f, 1f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.anchoredPosition = anchoredPosition;
+                rect.sizeDelta = new Vector2(260f, 38f);
+            }
+
+            var text = FindSceneUiText($"SceneUI/EntryPanel/ModeSelectPanel/{name}/Label");
+            if (text != null)
+            {
+                text.text = label;
+            }
+        }
+
         private void EnsureLobbyQuickActionsText()
         {
             if (_sceneUiRoot == null || _lobbyPanel == null || _lobbyQuickActionsText != null)

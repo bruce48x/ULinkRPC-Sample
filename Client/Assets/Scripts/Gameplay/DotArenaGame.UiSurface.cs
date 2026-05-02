@@ -26,6 +26,7 @@ namespace SampleClient.Gameplay
                 _owner._sceneUiPresenter.Bind(
                     _owner.transform,
                     OnUiSinglePlayerSelected,
+                    OnUiInvincibleSinglePlayerSelected,
                     OnUiMultiplayerSelected,
                     OnUiConnectRequested,
                     OnUiBackToModeSelect,
@@ -49,6 +50,20 @@ namespace SampleClient.Gameplay
                     return;
                 }
 
+                _owner._requestedSinglePlayerMode = SinglePlayerMode.Normal;
+                _owner._currentSinglePlayerMode = SinglePlayerMode.Normal;
+                _owner._singlePlayerStartRequested = true;
+            }
+
+            public void OnUiInvincibleSinglePlayerSelected()
+            {
+                if (_owner.IsUiBusy)
+                {
+                    return;
+                }
+
+                _owner._requestedSinglePlayerMode = SinglePlayerMode.Invincible;
+                _owner._currentSinglePlayerMode = SinglePlayerMode.Invincible;
                 _owner._singlePlayerStartRequested = true;
             }
 

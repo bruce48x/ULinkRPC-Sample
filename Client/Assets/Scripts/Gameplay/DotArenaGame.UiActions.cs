@@ -9,6 +9,11 @@ namespace SampleClient.Gameplay
             UiSurface.OnUiSinglePlayerSelected();
         }
 
+        public void OnUiInvincibleSinglePlayerSelected()
+        {
+            UiSurface.OnUiInvincibleSinglePlayerSelected();
+        }
+
         public void OnUiMultiplayerSelected()
         {
             UiSurface.OnUiMultiplayerSelected();

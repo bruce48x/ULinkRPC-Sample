@@ -33,6 +33,8 @@ namespace SampleClient.Gameplay
         private bool _singlePlayerStartRequested;
         private bool _rematchRequested;
         private bool _returnToLobbyRequested;
+        private SinglePlayerMode _requestedSinglePlayerMode = SinglePlayerMode.Normal;
+        private SinglePlayerMode _currentSinglePlayerMode = SinglePlayerMode.Normal;
         private EntryMenuState _entryMenuState = EntryMenuState.ModeSelect;
         private SessionMode _sessionMode = SessionMode.None;
         private FrontendFlowState _flowState = FrontendFlowState.Entry;

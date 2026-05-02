@@ -95,7 +95,7 @@ namespace SampleClient.Gameplay
             return ReturnToMainMenuAfterMatchAsync(preserveLoginState, _localPlayerId, true);
         }
 
-        private async Task ReturnToMainMenuAfterMatchAsync(bool preserveLoginState, string winnerPlayerId, bool localPlayerWon)
+        private Task ReturnToMainMenuAfterMatchAsync(bool preserveLoginState, string winnerPlayerId, bool localPlayerWon)
         {
             var sessionMode = _sessionMode;
             var localScore = GetLocalPlayerScoreValue();
@@ -104,7 +104,7 @@ namespace SampleClient.Gameplay
 
             if (_sessionMode == SessionMode.Multiplayer)
             {
-                await NetworkSession.DisposeRealtimeAsync().ConfigureAwait(false);
+                _ = NetworkSession.DisposeRealtimeAsync();
             }
 
             if (_sessionMode != SessionMode.Multiplayer)
@@ -172,6 +172,7 @@ namespace SampleClient.Gameplay
                 _lastRewardSummary = null;
             }
 
+            return Task.CompletedTask;
         }
 
         private void BeginShutdown()
@@ -304,6 +305,7 @@ namespace SampleClient.Gameplay
 
                     if (sessionMode == SessionMode.SinglePlayer)
                     {
+                        _requestedSinglePlayerMode = _currentSinglePlayerMode;
                         BeginSinglePlayerMatch();
                     }
                     else
@@ -438,6 +440,8 @@ namespace SampleClient.Gameplay
             _sessionMode = SessionMode.None;
             _localPlayerId = string.Empty;
             _localMatch = null;
+            _requestedSinglePlayerMode = SinglePlayerMode.Normal;
+            _currentSinglePlayerMode = SinglePlayerMode.Normal;
             _entryMenuState = EntryMenuState.ModeSelect;
             _status = "Choose a mode";
             _eventMessage = "Select single-player or multiplayer.";
@@ -459,6 +463,8 @@ namespace SampleClient.Gameplay
             _localPlayerId = string.Empty;
             _localWinCount = 0;
             _localMatch = null;
+            _requestedSinglePlayerMode = SinglePlayerMode.Normal;
+            _currentSinglePlayerMode = SinglePlayerMode.Normal;
             _metaState = null;
             _status = status;
             _eventMessage = eventMessage;

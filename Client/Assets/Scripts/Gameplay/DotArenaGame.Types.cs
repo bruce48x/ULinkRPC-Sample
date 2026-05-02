@@ -53,6 +53,12 @@ namespace SampleClient.Gameplay
         Multiplayer = 2
     }
 
+    internal enum SinglePlayerMode
+    {
+        Normal = 0,
+        Invincible = 1
+    }
+
     internal enum FrontendFlowState
     {
         Entry = 0,

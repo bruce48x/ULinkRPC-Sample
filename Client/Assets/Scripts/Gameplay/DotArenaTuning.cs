@@ -11,7 +11,11 @@ namespace SampleClient.Gameplay
         public const int WindowHeight = 600;
         public const float ArenaVisualPadding = 1.8f;
         public const float FollowCameraSize = 11.8f;
+        public const float MaxFollowCameraSize = 22f;
+        public const float FollowCameraRadiusMultiplier = 3.6f;
         public const float CameraFollowSharpness = 7f;
+        public const float CameraZoomSharpness = 5f;
+        public const int InvincibleSinglePlayerInitialScore = 1000;
         public const float PlayerNameOffsetY = 0.11f;
         public const float PlayerScoreOffsetY = -0.13f;
         public const float PickupPulseAmplitude = 0.08f;

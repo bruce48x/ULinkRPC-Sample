@@ -110,6 +110,7 @@ namespace SampleClient.Gameplay
         private TMP_Text? _accountPlaceholderText;
         private TMP_Text? _passwordPlaceholderText;
         private Button? _singlePlayerButton;
+        private Button? _invincibleSinglePlayerButton;
         private Button? _multiplayerButton;
         private Button? _matchButton;
         private Button? _backButton;
@@ -124,6 +125,7 @@ namespace SampleClient.Gameplay
         private TMP_Text? _settlementPrimaryButtonText;
         private TMP_Text? _settlementSecondaryButtonText;
         private TMP_Text? _singlePlayerButtonText;
+        private TMP_Text? _invincibleSinglePlayerButtonText;
         private TMP_Text? _multiplayerButtonText;
         private TMP_Text? _matchButtonText;
         private TMP_Text? _backButtonText;
@@ -139,6 +141,7 @@ namespace SampleClient.Gameplay
         public void Bind(
             Transform owner,
             Action onSinglePlayerSelected,
+            Action onInvincibleSinglePlayerSelected,
             Action onMultiplayerSelected,
             Action onConnectRequested,
             Action onBackToModeSelect,
@@ -172,6 +175,7 @@ namespace SampleClient.Gameplay
             EnsureLobbyQuickActionButtons();
             _modeSelectPanel = FindSceneUiObject("SceneUI/EntryPanel/ModeSelectPanel");
             _multiplayerPanel = FindSceneUiObject("SceneUI/EntryPanel/MultiplayerPanel");
+            EnsureModeSelectPanelContents();
             EnsureSettlementPanel();
 
             _hudTitleText = FindSceneUiText("SceneUI/HUDPanel/TitleText");
@@ -227,11 +231,13 @@ namespace SampleClient.Gameplay
             _passwordPlaceholderText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/PasswordInput/Text Area/Placeholder");
 
             _singlePlayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/SinglePlayerButton");
+            _invincibleSinglePlayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/InvincibleSinglePlayerButton");
             _multiplayerButton = FindSceneUiButton("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton");
             _matchButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/MatchButton");
             _backButton = FindSceneUiButton("SceneUI/EntryPanel/MultiplayerPanel/BackButton");
 
             _singlePlayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/SinglePlayerButton/Label");
+            _invincibleSinglePlayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/InvincibleSinglePlayerButton/Label");
             _multiplayerButtonText = FindSceneUiText("SceneUI/EntryPanel/ModeSelectPanel/MultiplayerButton/Label");
             _matchButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/MatchButton/Label");
             _backButtonText = FindSceneUiText("SceneUI/EntryPanel/MultiplayerPanel/BackButton/Label");
@@ -256,6 +262,12 @@ namespace SampleClient.Gameplay
             {
                 _singlePlayerButton.onClick.RemoveAllListeners();
                 _singlePlayerButton.onClick.AddListener(() => onSinglePlayerSelected());
+            }
+
+            if (_invincibleSinglePlayerButton != null)
+            {
+                _invincibleSinglePlayerButton.onClick.RemoveAllListeners();
+                _invincibleSinglePlayerButton.onClick.AddListener(() => onInvincibleSinglePlayerSelected());
             }
 
             if (_multiplayerButton != null)

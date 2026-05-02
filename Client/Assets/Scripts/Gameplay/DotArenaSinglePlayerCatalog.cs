@@ -69,6 +69,7 @@ namespace SampleClient.Gameplay
             var options = new ArenaSimulationOptions
             {
                 Arena = CreateArenaConfig(preset.MapVariant),
+                MaxRoundSeconds = 0f,
                 RespawnDelaySeconds = 5f,
                 FoodTargetCount = 96,
                 InitialMass = 24f,
@@ -86,7 +87,6 @@ namespace SampleClient.Gameplay
             switch (preset.RuleVariant)
             {
                 case ArenaRuleVariant.ScoreRush:
-                    options.MaxRoundSeconds = 85f;
                     options.RespawnDelaySeconds = 3f;
                     options.FoodTargetCount = 132;
                     options.FoodMassGain = 1.45f;
@@ -95,7 +95,6 @@ namespace SampleClient.Gameplay
                     options.ShrinkDurationSeconds = 28f;
                     break;
                 case ArenaRuleVariant.ArenaCollapse:
-                    options.MaxRoundSeconds = 70f;
                     options.RespawnDelaySeconds = 8f;
                     options.FoodTargetCount = 88;
                     options.BaseMoveSpeed = 8.4f;

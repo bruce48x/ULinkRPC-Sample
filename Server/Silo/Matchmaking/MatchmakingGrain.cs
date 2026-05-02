@@ -42,16 +42,21 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
         var existingTicket = _state.State.PendingTickets.FirstOrDefault(ticket => string.Equals(ticket.UserId, userId, StringComparison.Ordinal));
         if (existingTicket is not null)
         {
-            return new MatchmakingEnqueueResult
+            if (string.Equals(existingTicket.SessionToken, request.SessionToken, StringComparison.Ordinal))
             {
-                UserId = userId,
-                TicketId = existingTicket.TicketId,
-                Queued = true,
-                Matched = false,
-                QueuePosition = GetQueuePosition(existingTicket.TicketId),
-                Message = "Player is already queued.",
-                UpdatedAtUtc = enqueuedAtUtc
-            };
+                return new MatchmakingEnqueueResult
+                {
+                    UserId = userId,
+                    TicketId = existingTicket.TicketId,
+                    Queued = true,
+                    Matched = false,
+                    QueuePosition = GetQueuePosition(existingTicket.TicketId),
+                    Message = "Player is already queued.",
+                    UpdatedAtUtc = enqueuedAtUtc
+                };
+            }
+
+            _state.State.PendingTickets.Remove(existingTicket);
         }
 
         var ticket = new MatchmakingQueueTicket
@@ -293,7 +298,9 @@ public sealed class MatchmakingGrain : Grain, IMatchmakingGrain
         else if (allowExpiredPartialBatch &&
                  nowUtc - _state.State.PendingTickets[0].EnqueuedAtUtc >= MaxFrontQueueWait)
         {
-            batchSize = _state.State.PendingTickets.Count;
+            batchSize = _state.State.PendingTickets
+                .TakeWhile(ticket => nowUtc - ticket.EnqueuedAtUtc >= MaxFrontQueueWait)
+                .Count();
         }
 
         if (batchSize <= 0)

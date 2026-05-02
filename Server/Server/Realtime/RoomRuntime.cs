@@ -123,12 +123,22 @@ internal sealed class RoomRuntime : IAsyncDisposable
                     result = _simulation.Tick((float)TickInterval.TotalSeconds);
                 }
 
+                if (result.MatchEnd is null && ShouldForceRoundEnd(result.WorldState))
+                {
+                    result = new ArenaStepResult(
+                        result.WorldState,
+                        result.Deaths,
+                        CreateMatchEnd(result.WorldState),
+                        result.ScoreUpdates);
+                }
+
                 PublishWorldState(result);
 
                 if (result.MatchEnd is not null && !_matchCommitted)
                 {
                     _matchCommitted = true;
                     await PersistMatchEndAsync(result).ConfigureAwait(false);
+                    _cts.Cancel();
                 }
             }
         }
@@ -136,6 +146,26 @@ internal sealed class RoomRuntime : IAsyncDisposable
         {
             _logger.LogDebug("Room runtime loop stopped for room {RoomId}.", _roomId);
         }
+    }
+
+    private static bool ShouldForceRoundEnd(WorldState worldState)
+    {
+        return worldState.RoundRemainingSeconds <= 0 && worldState.Players.Count > 1;
+    }
+
+    private static MatchEnd CreateMatchEnd(WorldState worldState)
+    {
+        var winnerPlayerId = worldState.Players
+            .OrderByDescending(static player => player.Score)
+            .ThenByDescending(static player => player.Mass)
+            .ThenBy(static player => player.PlayerId, StringComparer.Ordinal)
+            .FirstOrDefault()?.PlayerId ?? string.Empty;
+
+        return new MatchEnd
+        {
+            WinnerPlayerId = winnerPlayerId,
+            Tick = worldState.Tick
+        };
     }
 
     private void PublishWorldState(ArenaStepResult result)
@@ -179,6 +209,12 @@ internal sealed class RoomRuntime : IAsyncDisposable
 
     private async Task PersistMatchEndAsync(ArenaStepResult result)
     {
+        var rankedPlayers = result.WorldState.Players
+            .OrderByDescending(static player => player.Score)
+            .ThenByDescending(static player => player.Mass)
+            .ThenBy(static player => player.PlayerId, StringComparer.Ordinal)
+            .ToArray();
+
         foreach (var player in result.WorldState.Players)
         {
             await _clusterClient.GetGrain<IUserGrain>(player.PlayerId)
@@ -186,13 +222,31 @@ internal sealed class RoomRuntime : IAsyncDisposable
                 .ConfigureAwait(false);
         }
 
+        var winnerPlayerId = result.MatchEnd?.WinnerPlayerId ?? "";
+        await _clusterClient.GetGrain<IRoomGrain>(_roomId)
+            .CompleteAsync(new RoomMatchCompletion
+            {
+                RoomId = _roomId,
+                SettlementId = $"settlement-{_roomId}-{result.MatchEnd?.Tick ?? result.WorldState.Tick}",
+                FinishedAtUtc = DateTime.UtcNow,
+                WinnerUserId = winnerPlayerId,
+                Reason = "Round timer elapsed.",
+                Results = rankedPlayers.Select((player, index) => new RoomSettlementEntry
+                {
+                    UserId = player.PlayerId,
+                    Rank = index + 1,
+                    ScoreDelta = player.Score,
+                    IsWinner = string.Equals(player.PlayerId, winnerPlayerId, StringComparison.Ordinal)
+                }).ToList()
+            })
+            .ConfigureAwait(false);
+
         var registrations = _sessionDirectory.GetByRoom(_roomId);
         foreach (var registration in registrations)
         {
             _sessionDirectory.ClearRoom(registration.PlayerId, _roomId);
         }
 
-        var winnerPlayerId = result.MatchEnd?.WinnerPlayerId;
         if (!string.IsNullOrWhiteSpace(winnerPlayerId))
         {
             await _clusterClient.GetGrain<IUserGrain>(winnerPlayerId).AddWinAsync().ConfigureAwait(false);

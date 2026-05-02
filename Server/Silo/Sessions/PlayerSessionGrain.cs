@@ -24,11 +24,18 @@ public sealed class PlayerSessionGrain : Grain, IPlayerSessionGrain
         _state.State.SessionToken = request.SessionToken;
         _state.State.ConnectionId = request.ConnectionId;
         _state.State.IsOnline = true;
+        _state.State.IsQueued = false;
+        _state.State.QueueId = "";
+        _state.State.MatchmakingTicketId = "";
+        _state.State.CurrentRoomId = "";
+        _state.State.CurrentMatchId = "";
+        _state.State.SeatIndex = -1;
         _state.State.AttachedAtUtc = attachedAtUtc;
         _state.State.LastConnectedAtUtc = attachedAtUtc;
         _state.State.LastHeartbeatAtUtc = attachedAtUtc;
         _state.State.ReconnectToken = EnsureReconnectToken(_state.State.ReconnectToken);
         _state.State.ControlGateway = CloneGateway(request.ControlGateway);
+        _state.State.RuntimeGateway = new GatewayEndpointDescriptor();
 
         await _state.WriteStateAsync();
         return BuildSnapshot();

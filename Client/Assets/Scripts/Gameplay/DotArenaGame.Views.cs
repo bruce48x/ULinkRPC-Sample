@@ -78,10 +78,22 @@ namespace SampleClient.Gameplay
             }
 
             var targetPosition = Vector2.zero;
+            var desiredCameraSize = FollowCameraSize;
             if (_views.TryGetValue(_localPlayerId, out var localView))
             {
                 targetPosition = localView.GetPosition();
             }
+
+            if (_renderStates.TryGetValue(_localPlayerId, out var localState))
+            {
+                desiredCameraSize = Mathf.Clamp(
+                    Mathf.Max(FollowCameraSize, localState.Radius * FollowCameraRadiusMultiplier),
+                    FollowCameraSize,
+                    MaxFollowCameraSize);
+            }
+
+            var zoomT = 1f - Mathf.Exp(-CameraZoomSharpness * Time.deltaTime);
+            camera.orthographicSize = Mathf.Lerp(camera.orthographicSize, desiredCameraSize, zoomT);
 
             var halfVisibleHeight = Mathf.Max(0f, camera.orthographicSize - ArenaVisualPadding);
             var halfVisibleWidth = halfVisibleHeight * camera.aspect;

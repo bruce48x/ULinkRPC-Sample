@@ -17,6 +17,12 @@ namespace Shared.Gameplay
         public bool EnableBots { get; set; } = true;
         public int RestartDelayTicks { get; set; } = 60;
         public float MaxRoundSeconds { get; set; } = 120f;
+        public int InitialScore { get; set; } = 1;
+        public string? FixedRespawnPlayerId { get; set; }
+        public int FixedRespawnScore { get; set; }
+        public string? MoveSpeedMultiplierPlayerId { get; set; }
+        public float MoveSpeedMultiplier { get; set; } = 1f;
+        public string? InvertedMoveSpeedPlayerId { get; set; }
         public float InitialMass { get; set; } = 24f;
         public float RespawnMass { get; set; } = 24f;
         public float FoodMassGain { get; set; } = 1.35f;
@@ -124,7 +130,7 @@ namespace Shared.Gameplay
 
             if (_players.TryGetValue(registration.PlayerId, out var existing))
             {
-                existing.Score = NormalizeScore(existing.Score);
+                SetScore(existing, Math.Max(existing.Score, GetInitialScore()));
                 return;
             }
 
@@ -132,13 +138,13 @@ namespace Shared.Gameplay
             var player = new ArenaPlayer(
                 registration.PlayerId,
                 spawnIndex,
-                NormalizeScore(registration.Score),
+                Math.Max(NormalizeScore(registration.Score), GetInitialScore()),
                 registration.IsBot,
                 registration.BotNumber)
             {
                 Position = GetRandomSpawnPosition()
             };
-            ResetPlayerBody(player, _options.InitialMass);
+            RefreshPlayerBodyFromScore(player);
             _players.Add(registration.PlayerId, player);
 
             if (!registration.IsBot)
@@ -246,14 +252,14 @@ namespace Shared.Gameplay
                 RespawnDelaySeconds = _respawnDelaySecondsCeiling,
                 ArenaHalfExtentX = _currentArenaHalfExtents.x,
                 ArenaHalfExtentY = _currentArenaHalfExtents.y,
-                RoundRemainingSeconds = (_winnerPlayerId is null && _players.Count >= _options.MinPlayersToStart)
+                RoundRemainingSeconds = (_options.MaxRoundSeconds > 0f && _winnerPlayerId is null && _players.Count >= _options.MinPlayersToStart)
                     ? (int)MathF.Ceiling(MathF.Max(0f, _options.MaxRoundSeconds - _roundElapsedSeconds))
                     : 0
             };
 
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
             {
-                var moveSpeed = player.Alive ? GetMoveSpeed(player.Mass) : 0f;
+                var moveSpeed = player.Alive ? GetMoveSpeed(player) : 0f;
                 state.Players.Add(new PlayerState
                 {
                     PlayerId = player.PlayerId,
@@ -360,7 +366,7 @@ namespace Shared.Gameplay
                     desired = Normalize(desired);
                 }
 
-                player.Velocity = desired * GetMoveSpeed(player.Mass);
+                player.Velocity = desired * GetMoveSpeed(player);
                 player.Position += player.Velocity * deltaTime;
                 ClampPlayerInsideArena(player);
             }
@@ -461,16 +467,14 @@ namespace Shared.Gameplay
 
         private void ConsumeFood(ArenaPlayer player, ArenaFood food)
         {
-            player.Mass += _options.FoodMassGain;
-            player.Radius = GetRadiusForMass(player.Mass);
             AdjustScore(player, 1);
         }
 
         private void ConsumePlayer(ArenaPlayer eater, ArenaPlayer victim)
         {
-            eater.Mass += victim.Mass * _options.PlayerConsumeMassGainFactor;
-            eater.Radius = GetRadiusForMass(eater.Mass);
-            AdjustScore(eater, Math.Max(2, (int)MathF.Round(victim.Mass / _options.FoodMassGain)));
+            var scoreGain = Math.Max(2, (int)MathF.Round(GetScoreMass(victim) * _options.PlayerConsumeMassGainFactor / _options.FoodMassGain));
+            AdjustScore(eater, scoreGain);
+            SetScore(victim, 0);
 
             victim.Alive = false;
             victim.Velocity = Zero;
@@ -496,7 +500,7 @@ namespace Shared.Gameplay
                 return;
             }
 
-            if (_roundElapsedSeconds < _options.MaxRoundSeconds)
+            if (_options.MaxRoundSeconds <= 0f || _roundElapsedSeconds < _options.MaxRoundSeconds)
             {
                 return;
             }
@@ -537,8 +541,10 @@ namespace Shared.Gameplay
             foreach (var player in _players.Values.OrderBy(static p => p.PlayerId, StringComparer.Ordinal))
             {
                 player.Position = GetRandomSpawnPosition(player.PlayerId);
-                player.Score = 0;
-                ResetPlayerBody(player, _options.InitialMass);
+                player.Score = GetRespawnScore(player);
+                RefreshPlayerBodyFromScore(player);
+                player.Velocity = Zero;
+                player.Input = Zero;
                 player.Alive = true;
                 player.RespawnRemaining = 0f;
                 _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
@@ -584,7 +590,13 @@ namespace Shared.Gameplay
 
         private void AdjustScore(ArenaPlayer player, int delta)
         {
-            player.Score = NormalizeScore(player.Score + delta);
+            SetScore(player, player.Score + delta);
+        }
+
+        private void SetScore(ArenaPlayer player, int score)
+        {
+            player.Score = NormalizeScore(score);
+            RefreshPlayerBodyFromScore(player);
             _pendingScoreUpdates.RemoveAll(update => string.Equals(update.PlayerId, player.PlayerId, StringComparison.Ordinal));
             _pendingScoreUpdates.Add(new ArenaScoreUpdate
             {
@@ -597,17 +609,18 @@ namespace Shared.Gameplay
         private void RespawnPlayer(ArenaPlayer player)
         {
             player.Position = GetRandomSpawnPosition(player.PlayerId);
-            ResetPlayerBody(player, _options.RespawnMass);
+            player.Score = GetRespawnScore(player);
+            RefreshPlayerBodyFromScore(player);
+            player.Velocity = Zero;
+            player.Input = Zero;
             player.Alive = true;
             player.RespawnRemaining = 0f;
         }
 
-        private void ResetPlayerBody(ArenaPlayer player, float mass)
+        private void RefreshPlayerBodyFromScore(ArenaPlayer player)
         {
-            player.Mass = MathF.Max(1f, mass);
+            player.Mass = GetMassForScore(player.Score);
             player.Radius = GetRadiusForMass(player.Mass);
-            player.Velocity = Zero;
-            player.Input = Zero;
         }
 
         private PlayerLifeState GetLifeState(ArenaPlayer player)
@@ -627,8 +640,68 @@ namespace Shared.Gameplay
 
         private float GetMoveSpeed(float mass)
         {
-            var slowdown = 1f + (MathF.Sqrt(MathF.Max(1f, mass)) * _options.MoveSpeedMassFactor);
+            var baselineMass = MathF.Max(1f, _options.InitialMass);
+            var extraMass = MathF.Max(0f, mass - baselineMass);
+            var slowdown = 1f + (MathF.Sqrt(extraMass) * _options.MoveSpeedMassFactor);
             return MathF.Max(_options.MinMoveSpeed, _options.BaseMoveSpeed / slowdown);
+        }
+
+        private float GetInvertedMoveSpeed(float mass)
+        {
+            var baselineMass = MathF.Max(1f, _options.InitialMass);
+            var extraMass = MathF.Max(0f, mass - baselineMass);
+            var speedup = 1f + (MathF.Sqrt(extraMass) * _options.MoveSpeedMassFactor);
+            return MathF.Max(_options.MinMoveSpeed, _options.BaseMoveSpeed * speedup);
+        }
+
+        private float GetMoveSpeed(ArenaPlayer player)
+        {
+            var speed = IsConfiguredPlayer(player, _options.InvertedMoveSpeedPlayerId)
+                ? GetInvertedMoveSpeed(player.Mass)
+                : GetMoveSpeed(player.Mass);
+            if (IsConfiguredPlayer(player, _options.MoveSpeedMultiplierPlayerId))
+            {
+                speed *= MathF.Max(0f, _options.MoveSpeedMultiplier);
+            }
+
+            return speed;
+        }
+
+        private float GetMassForScore(int score)
+        {
+            return MathF.Max(1f, _options.InitialMass + (GetScoreGrowth(score) * _options.FoodMassGain));
+        }
+
+        private float GetScoreMass(ArenaPlayer player)
+        {
+            return MathF.Max(0f, player.Mass - _options.InitialMass);
+        }
+
+        private int GetInitialScore()
+        {
+            return Math.Max(1, _options.InitialScore);
+        }
+
+        private int GetRespawnScore(ArenaPlayer player)
+        {
+            if (!string.IsNullOrWhiteSpace(_options.FixedRespawnPlayerId) &&
+                string.Equals(player.PlayerId, _options.FixedRespawnPlayerId, StringComparison.Ordinal))
+            {
+                return Math.Max(GetInitialScore(), NormalizeScore(_options.FixedRespawnScore));
+            }
+
+            return GetInitialScore();
+        }
+
+        private int GetScoreGrowth(int score)
+        {
+            return Math.Max(0, NormalizeScore(score) - GetInitialScore());
+        }
+
+        private static bool IsConfiguredPlayer(ArenaPlayer player, string? configuredPlayerId)
+        {
+            return !string.IsNullOrWhiteSpace(configuredPlayerId) &&
+                   string.Equals(player.PlayerId, configuredPlayerId, StringComparison.Ordinal);
         }
 
         private float GetRadiusForMass(float mass)

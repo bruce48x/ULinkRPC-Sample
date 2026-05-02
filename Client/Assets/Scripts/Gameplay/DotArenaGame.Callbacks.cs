@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Linq;
 using Shared.Gameplay;
 using Shared.Interfaces;
 using UnityEngine;
@@ -86,6 +87,12 @@ namespace SampleClient.Gameplay
 
         private void ApplyWorldState(WorldState worldState)
         {
+            if (_flowState == FrontendFlowState.Settlement)
+            {
+                return;
+            }
+
+            var previousRoundRemainingSeconds = _lastRoundRemainingSeconds;
             WorldSynchronizer.ApplyWorldState(
                 worldState,
                 _localPlayerId,
@@ -93,6 +100,18 @@ namespace SampleClient.Gameplay
                 ref _lastRoundRemainingSeconds,
                 ref _lastLoggedPlayerCount,
                 ref _currentArenaHalfExtents);
+
+            if (previousRoundRemainingSeconds > 0 &&
+                worldState.RoundRemainingSeconds <= 0 &&
+                worldState.Players.Count > 1)
+            {
+                HandleMatchEnd(new MatchEnd
+                {
+                    WinnerPlayerId = SelectWinnerFromWorldState(worldState),
+                    Tick = worldState.Tick
+                });
+                return;
+            }
 
             if (_sessionMode != SessionMode.None &&
                 _flowState != FrontendFlowState.Settlement &&
@@ -127,6 +146,11 @@ namespace SampleClient.Gameplay
 
         private void HandleMatchEnd(MatchEnd matchEnd)
         {
+            if (_flowState == FrontendFlowState.Settlement)
+            {
+                return;
+            }
+
             if (_sessionMode == SessionMode.Multiplayer &&
                 string.Equals(matchEnd.WinnerPlayerId, _localPlayerId, StringComparison.Ordinal))
             {
@@ -141,6 +165,15 @@ namespace SampleClient.Gameplay
                 _sessionMode == SessionMode.Multiplayer,
                 matchEnd.WinnerPlayerId,
                 string.Equals(matchEnd.WinnerPlayerId, _localPlayerId, StringComparison.Ordinal));
+        }
+
+        private static string SelectWinnerFromWorldState(WorldState worldState)
+        {
+            return worldState.Players
+                .OrderByDescending(static player => player.Score)
+                .ThenByDescending(static player => player.Mass)
+                .ThenBy(static player => player.PlayerId, StringComparer.Ordinal)
+                .FirstOrDefault()?.PlayerId ?? string.Empty;
         }
 
         private void HandleMatchmakingStatus(MatchmakingStatusUpdate matchmakingStatus)

@@ -84,6 +84,7 @@ namespace SampleClient.Gameplay
             StyleText(_passwordPlaceholderText, UiMutedTextColor, 13f, false, TextAlignmentOptions.MidlineLeft, TextOverflowModes.Ellipsis);
 
             StyleButton(_singlePlayerButton);
+            StyleButton(_invincibleSinglePlayerButton);
             StyleButton(_multiplayerButton);
             StyleButton(_matchButton);
             StyleButton(_backButton);
@@ -103,6 +104,7 @@ namespace SampleClient.Gameplay
             StyleButton(_settlementPrimaryButton);
             StyleButton(_settlementSecondaryButton);
             StyleText(_singlePlayerButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
+            StyleText(_invincibleSinglePlayerButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_multiplayerButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_matchButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);
             StyleText(_backButtonText, UiPrimaryTextColor, 13f, false, TextAlignmentOptions.Center, TextOverflowModes.Ellipsis);

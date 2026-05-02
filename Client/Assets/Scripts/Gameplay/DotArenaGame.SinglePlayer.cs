@@ -11,7 +11,20 @@ namespace SampleClient.Gameplay
     {
         private void BeginSinglePlayerMatch()
         {
+            _currentSinglePlayerMode = _requestedSinglePlayerMode;
             var preset = DotArenaSinglePlayerCatalog.GetNextPreset(ref _singlePlayerPlaylistIndex);
+            var options = DotArenaSinglePlayerCatalog.CreateOptions(preset);
+            var initialScore = 1;
+            if (_currentSinglePlayerMode == SinglePlayerMode.Invincible)
+            {
+                initialScore = InvincibleSinglePlayerInitialScore;
+                options.FixedRespawnPlayerId = "Player";
+                options.FixedRespawnScore = InvincibleSinglePlayerInitialScore;
+                options.MoveSpeedMultiplierPlayerId = "Player";
+                options.MoveSpeedMultiplier = 2f;
+                options.InvertedMoveSpeedPlayerId = "Player";
+            }
+
             _settlementSummary = null;
             ResetSessionPresentation();
             _ = DisposeConnectionAsync(clearSessionState: false);
@@ -21,15 +34,15 @@ namespace SampleClient.Gameplay
             EnsureMetaState(_localPlayerId);
             _currentArenaMapVariant = preset.MapVariant;
             _currentArenaRuleVariant = preset.RuleVariant;
-            _localMatch = new ArenaSimulation(DotArenaSinglePlayerCatalog.CreateOptions(preset));
+            _localMatch = new ArenaSimulation(options);
             _localMatch.UpsertPlayer(new ArenaPlayerRegistration
             {
                 PlayerId = _localPlayerId,
-                Score = 1
+                Score = initialScore
             });
             _localWinCount = 0;
             _entryMenuState = EntryMenuState.Hidden;
-            _status = $"Single-player | {DotArenaSinglePlayerCatalog.GetRuleVariantName(_currentArenaRuleVariant)}";
+            _status = $"{GetSinglePlayerModeLabel(_currentSinglePlayerMode)} | {DotArenaSinglePlayerCatalog.GetRuleVariantName(_currentArenaRuleVariant)}";
             _eventMessage = $"Loading {DotArenaSinglePlayerCatalog.GetMapVariantName(_currentArenaMapVariant)}";
             _lastWorldTick = -1;
             _inputTick = 0;
@@ -37,7 +50,12 @@ namespace SampleClient.Gameplay
             Debug.Log("[DotArena] BeginSinglePlayerMatch");
             ApplyWorldState(_localMatch.CreateWorldState());
             PushEvent($"Preset: {DotArenaSinglePlayerCatalog.GetPresetLabel(_currentArenaMapVariant, _currentArenaRuleVariant)}", 4f);
-            _status = $"Single-player: {_localPlayerId}";
+            _status = $"{GetSinglePlayerModeLabel(_currentSinglePlayerMode)}: {_localPlayerId}";
+        }
+
+        private static string GetSinglePlayerModeLabel(SinglePlayerMode mode)
+        {
+            return mode == SinglePlayerMode.Invincible ? "单机：无敌模式" : "单机：普通模式";
         }
 
         private void TickLocalMatch()
