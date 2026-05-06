@@ -388,9 +388,19 @@ internal static class ULinkHostToolCli
                 .AddEnvironmentVariables();
 
             builder.AddULinkHostOrleansClient();
-            builder.Services.AddSingleton<IControlPlaneRpcServerConfigurator, DefaultControlPlaneRpcServerConfigurator>();
-            builder.Services.AddSingleton<IRealtimeRpcServerConfigurator, DefaultRealtimeRpcServerConfigurator>();
-            builder.Services.AddULinkHostGateway(builder.Configuration);
+            builder.Services.AddSingleton(_ => new ControlPlaneRpcServerOptions(
+                GatewayRpcServerOptions.FromConfiguration(
+                    builder.Configuration,
+                    "ControlPlane",
+                    new GatewayRpcServerOptions { Transport = "websocket", Port = 20000, Path = "/ws" })));
+            builder.Services.AddSingleton(_ => new RealtimeRpcServerOptions(
+                GatewayRpcServerOptions.FromConfiguration(
+                    builder.Configuration,
+                    "Realtime",
+                    new GatewayRpcServerOptions { Transport = "kcp", Port = 20001, Path = "" })));
+            builder.Services.AddULinkRpcServer<DefaultControlPlaneRpcServerConfigurator>();
+            builder.Services.AddULinkRpcServer<DefaultRealtimeRpcServerConfigurator>();
+            builder.Services.AddULinkHostGateway();
 
             var host = builder.Build();
             await host.RunAsync();
@@ -473,8 +483,74 @@ internal static class ULinkHostToolCli
         Directory.CreateDirectory(hostingDirectory);
 
         return Task.WhenAll(
+            File.WriteAllTextAsync(Path.Combine(hostingDirectory, "GatewayRpcServerOptions.cs"), RenderGatewayRpcServerOptions() + Environment.NewLine),
+            File.WriteAllTextAsync(Path.Combine(hostingDirectory, "ControlPlaneRpcServerOptions.cs"), RenderNamedRpcServerOptions("ControlPlaneRpcServerOptions") + Environment.NewLine),
+            File.WriteAllTextAsync(Path.Combine(hostingDirectory, "RealtimeRpcServerOptions.cs"), RenderNamedRpcServerOptions("RealtimeRpcServerOptions") + Environment.NewLine),
             File.WriteAllTextAsync(Path.Combine(hostingDirectory, "DefaultControlPlaneRpcServerConfigurator.cs"), RenderControlPlaneConfigurator(options) + Environment.NewLine),
             File.WriteAllTextAsync(Path.Combine(hostingDirectory, "DefaultRealtimeRpcServerConfigurator.cs"), RenderRealtimeConfigurator(options) + Environment.NewLine));
+    }
+
+    private static string RenderGatewayRpcServerOptions()
+    {
+        return @"using Microsoft.Extensions.Configuration;
+
+namespace Server.Hosting;
+
+internal sealed class GatewayRpcServerOptions
+{
+    public string Transport { get; init; } = ""websocket"";
+    public string Host { get; init; } = ""127.0.0.1"";
+    public int Port { get; init; } = 20000;
+    public string Path { get; init; } = """";
+
+    public static GatewayRpcServerOptions FromConfiguration(
+        IConfiguration configuration,
+        string sectionName,
+        GatewayRpcServerOptions defaults)
+    {
+        var section = configuration.GetSection(sectionName);
+        var transport = NormalizeTransport(section[""Transport""], defaults.Transport);
+        var host = section[""Host""];
+        var path = section[""Path""];
+
+        return new GatewayRpcServerOptions
+        {
+            Transport = transport,
+            Host = string.IsNullOrWhiteSpace(host) ? defaults.Host : host,
+            Port = ParsePort(section[""Port""], defaults.Port),
+            Path = string.IsNullOrWhiteSpace(path) ? defaults.Path : path
+        };
+    }
+
+    private static string NormalizeTransport(string? rawValue, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(rawValue)
+            ? fallback
+            : rawValue.Trim().ToLowerInvariant();
+    }
+
+    private static int ParsePort(string? rawValue, int fallback)
+    {
+        return int.TryParse(rawValue, out var port) && port > 0
+            ? port
+            : fallback;
+    }
+}";
+    }
+
+    private static string RenderNamedRpcServerOptions(string typeName)
+    {
+        return $@"namespace Server.Hosting;
+
+internal sealed class {typeName}
+{{
+    public {typeName}(GatewayRpcServerOptions endpoint)
+    {{
+        Endpoint = endpoint;
+    }}
+
+    public GatewayRpcServerOptions Endpoint {{ get; }}
+}}";
     }
 
     private static Task WriteSiloProjectAsync(string projectRoot)
@@ -586,20 +662,21 @@ internal static class ULinkHostToolCli
         var (transportPackage, _) = GetTransportArtifacts(options.Transport);
 
         return $@"using ULinkHost.Hosting;
-using ULinkHost.Transport;
 using {serializerPackage.Namespace};
 using {transportPackage.Namespace};
 
 namespace Server.Hosting;
 
-internal sealed class DefaultControlPlaneRpcServerConfigurator : IControlPlaneRpcServerConfigurator
+internal sealed class DefaultControlPlaneRpcServerConfigurator : IULinkRpcServerConfigurator
 {{
-    private readonly ControlPlaneOptions _options;
+    private readonly GatewayRpcServerOptions _options;
 
-    public DefaultControlPlaneRpcServerConfigurator(ControlPlaneOptions options)
+    public DefaultControlPlaneRpcServerConfigurator(ControlPlaneRpcServerOptions options)
     {{
-        _options = options;
+        _options = options.Endpoint;
     }}
+
+    public string Name => ""control"";
 
     public void Configure(ULinkHostRpcServerContext context)
     {{
@@ -616,20 +693,21 @@ internal sealed class DefaultControlPlaneRpcServerConfigurator : IControlPlaneRp
         var (transportPackage, _) = GetTransportArtifacts(options.Transport);
 
         return $@"using ULinkHost.Hosting;
-using ULinkHost.Transport;
 using {serializerPackage.Namespace};
 using {transportPackage.Namespace};
 
 namespace Server.Hosting;
 
-internal sealed class DefaultRealtimeRpcServerConfigurator : IRealtimeRpcServerConfigurator
+internal sealed class DefaultRealtimeRpcServerConfigurator : IULinkRpcServerConfigurator
 {{
-    private readonly RealtimeServerOptions _options;
+    private readonly GatewayRpcServerOptions _options;
 
-    public DefaultRealtimeRpcServerConfigurator(RealtimeServerOptions options)
+    public DefaultRealtimeRpcServerConfigurator(RealtimeRpcServerOptions options)
     {{
-        _options = options;
+        _options = options.Endpoint;
     }}
+
+    public string Name => ""realtime"";
 
     public void Configure(ULinkHostRpcServerContext context)
     {{

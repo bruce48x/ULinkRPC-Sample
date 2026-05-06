@@ -1,6 +1,8 @@
 namespace ULinkHost.Hosting;
 
-public interface IControlPlaneRpcServerConfigurator
+public interface IULinkRpcServerConfigurator
 {
+    string Name { get; }
+
     void Configure(ULinkHostRpcServerContext context);
 }

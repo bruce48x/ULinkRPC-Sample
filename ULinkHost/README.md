@@ -104,7 +104,7 @@
 - 模块如何接入
 - RPC 服务如何通过宿主 DI 获取依赖
 - Orleans 如何统一接线
-- 控制面与实时面如何挂接
+- RPC server 如何挂接
 
 ## 当前 Core 边界
 
@@ -113,11 +113,8 @@
 - `Hosting/`
   - 宿主启动扩展
   - Orleans client/silo 装配
-  - 控制面 / 实时面 RPC hosted service
+  - 通用 RPC server hosted service
   - RPC server 配置上下文
-- `Transport/`
-  - 控制面配置
-  - 实时面配置
 
 这些能力都是宿主层机制，不带具体游戏业务语义。
 
@@ -168,16 +165,20 @@
 - `ULinkHost` 不应内置或硬编码特定 serializer
 - `ULinkHost` 不应内置或硬编码特定 transport
 - `ULinkHost` 只负责托管 RPC server 生命周期
-- 具体项目负责注册控制面与实时面的 RPC builder 配置
+- 具体项目负责注册自己需要的 RPC server 与 RPC builder 配置
 
 当前做法是通过以下接口把具体实现留给上层项目：
 
-- `IControlPlaneRpcServerConfigurator`
-- `IRealtimeRpcServerConfigurator`
+- `IULinkRpcServerConfigurator`
 
 配置接口接收 `ULinkHostRpcServerContext`，业务项目可以通过其中的 `Builder`
 配置 serializer / transport / service binder，也可以通过 `Services` 接入宿主
 DI 容器创建 RPC service。
+
+`ULinkHost` Core 不预设游戏一定存在“控制面 + 实时面”，也不预设客户端一定
+会同时使用多种协议。一个项目可以只注册一个 TCP server、一个 WebSocket
+server，也可以注册多条同协议连接或多个不同用途的 RPC server。`Name` 只是
+宿主内用于区分 server 的稳定标识，不代表固定业务语义。
 
 这样 `ULinkHost` 保持宿主层中立，而业务项目可以自由选择：
 

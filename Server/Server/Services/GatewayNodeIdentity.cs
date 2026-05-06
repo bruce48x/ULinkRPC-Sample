@@ -1,13 +1,13 @@
 using Microsoft.Extensions.Configuration;
 using Orleans.Contracts;
+using Server.Hosting;
 using Shared.Interfaces;
-using ULinkHost.Transport;
 
 namespace Server.Services;
 
 internal sealed class GatewayNodeIdentity
 {
-    public GatewayNodeIdentity(IConfiguration configuration, RealtimeServerOptions realtimeOptions)
+    public GatewayNodeIdentity(IConfiguration configuration, RealtimeRpcServerOptions realtimeOptions)
     {
         InstanceId = configuration["Gateway:NodeId"] ?? string.Empty;
         if (string.IsNullOrWhiteSpace(InstanceId))
@@ -18,10 +18,10 @@ internal sealed class GatewayNodeIdentity
         RealtimeEndpoint = new GatewayEndpointDescriptor
         {
             InstanceId = InstanceId,
-            Transport = RealtimeTransportToString(realtimeOptions.Transport),
-            Host = realtimeOptions.Host,
-            Port = realtimeOptions.Port,
-            Path = realtimeOptions.Path
+            Transport = RealtimeTransportToString(realtimeOptions.Endpoint.Transport),
+            Host = realtimeOptions.Endpoint.Host,
+            Port = realtimeOptions.Endpoint.Port,
+            Path = realtimeOptions.Endpoint.Path
         };
     }
 

@@ -2,20 +2,21 @@ using Microsoft.Extensions.DependencyInjection;
 using Server.Generated;
 using Server.Services;
 using ULinkHost.Hosting;
-using ULinkHost.Transport;
 using ULinkRPC.Serializer.MemoryPack;
 using ULinkRPC.Transport.WebSocket;
 
 namespace Server.Hosting;
 
-internal sealed class DefaultControlPlaneRpcServerConfigurator : IControlPlaneRpcServerConfigurator
+internal sealed class DefaultControlPlaneRpcServerConfigurator : IULinkRpcServerConfigurator
 {
-    private readonly ControlPlaneOptions _options;
+    private readonly GatewayRpcServerOptions _options;
 
-    public DefaultControlPlaneRpcServerConfigurator(ControlPlaneOptions options)
+    public DefaultControlPlaneRpcServerConfigurator(ControlPlaneRpcServerOptions options)
     {
-        _options = options;
+        _options = options.Endpoint;
     }
+
+    public string Name => "control";
 
     public void Configure(ULinkHostRpcServerContext context)
     {

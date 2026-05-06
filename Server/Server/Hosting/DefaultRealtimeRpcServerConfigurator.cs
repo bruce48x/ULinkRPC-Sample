@@ -2,21 +2,22 @@ using Microsoft.Extensions.DependencyInjection;
 using Server.Generated;
 using Server.Services;
 using ULinkHost.Hosting;
-using ULinkHost.Transport;
 using ULinkRPC.Serializer.MemoryPack;
 using ULinkRPC.Transport.Kcp;
 using ULinkRPC.Transport.WebSocket;
 
 namespace Server.Hosting;
 
-internal sealed class DefaultRealtimeRpcServerConfigurator : IRealtimeRpcServerConfigurator
+internal sealed class DefaultRealtimeRpcServerConfigurator : IULinkRpcServerConfigurator
 {
-    private readonly RealtimeServerOptions _options;
+    private readonly GatewayRpcServerOptions _options;
 
-    public DefaultRealtimeRpcServerConfigurator(RealtimeServerOptions options)
+    public DefaultRealtimeRpcServerConfigurator(RealtimeRpcServerOptions options)
     {
-        _options = options;
+        _options = options.Endpoint;
     }
+
+    public string Name => "realtime";
 
     public void Configure(ULinkHostRpcServerContext context)
     {
@@ -45,6 +46,6 @@ internal sealed class DefaultRealtimeRpcServerConfigurator : IRealtimeRpcServerC
         }
 
         throw new InvalidOperationException(
-            $"Unsupported realtime transport '{_options.Transport}'. Register a custom {nameof(IRealtimeRpcServerConfigurator)} for this project.");
+            $"Unsupported realtime transport '{_options.Transport}'. Register a custom {nameof(IULinkRpcServerConfigurator)} for this project.");
     }
 }
