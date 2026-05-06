@@ -35,6 +35,8 @@ namespace SampleClient.Gameplay
 
         public bool IsRealtimeConnecting { get; private set; }
 
+        public bool CanSubmitGameplayInput => IsConnected || IsRealtimeConnected;
+
         public async Task<LoginReply> ConnectAndLoginAsync(
             string host,
             int port,
@@ -42,6 +44,7 @@ namespace SampleClient.Gameplay
             string account,
             string password,
             bool guestLogin,
+            bool reconnect,
             IPlayerCallback callback,
             CancellationToken cancellationToken)
         {
@@ -66,12 +69,14 @@ namespace SampleClient.Gameplay
                 {
                     Account = account,
                     Password = password,
-                    GuestLogin = guestLogin
+                    GuestLogin = guestLogin,
+                    Reconnect = reconnect
                 });
 
                 if (reply.Code != 0)
                 {
-                    await DisposeAsync(logout: false).ConfigureAwait(false);
+                    await DisposeControlAsync(logout: false).ConfigureAwait(false);
+
                     return reply;
                 }
 
@@ -79,6 +84,11 @@ namespace SampleClient.Gameplay
                 _token = reply.Token;
                 IsConnected = true;
                 return reply;
+            }
+            catch
+            {
+                await DisposeControlAsync(logout: false).ConfigureAwait(false);
+                throw;
             }
             finally
             {
@@ -197,7 +207,11 @@ namespace SampleClient.Gameplay
         public async Task DisposeAsync(bool logout = true)
         {
             await DisposeRealtimeAsync().ConfigureAwait(false);
+            await DisposeControlAsync(logout).ConfigureAwait(false);
+        }
 
+        private async Task DisposeControlAsync(bool logout)
+        {
             if (_controlConnection == null)
             {
                 _controlPlayerService = null;
@@ -236,8 +250,12 @@ namespace SampleClient.Gameplay
             {
                 _ignoreControlDisconnect = false;
                 _controlPlayerService = null;
-                _playerId = string.Empty;
-                _token = string.Empty;
+                if (logout)
+                {
+                    _playerId = string.Empty;
+                    _token = string.Empty;
+                }
+
                 IsConnected = false;
                 IsConnecting = false;
             }
@@ -286,9 +304,8 @@ namespace SampleClient.Gameplay
             }
 
             IsConnected = false;
+            _controlConnection = null;
             _controlPlayerService = null;
-            _playerId = string.Empty;
-            _token = string.Empty;
             _onDisconnected(ex);
         }
 
@@ -303,6 +320,11 @@ namespace SampleClient.Gameplay
             _realtimePlayerService = null;
             _realtimeRoomId = string.Empty;
             _realtimeMatchId = string.Empty;
+
+            if (!IsConnected)
+            {
+                _onDisconnected(ex);
+            }
         }
     }
 }

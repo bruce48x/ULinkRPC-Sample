@@ -53,6 +53,16 @@ namespace SampleClient.Gameplay
             return _eventMessage;
         }
 
+        private int GetMatchmakingElapsedSeconds()
+        {
+            if (_flowState != FrontendFlowState.Matchmaking || _matchmakingStartedAt < 0f)
+            {
+                return 0;
+            }
+
+            return Math.Max(0, Mathf.FloorToInt(Time.time - _matchmakingStartedAt));
+        }
+
         private void PushEvent(string message, float durationSeconds = 3f)
         {
             _eventMessage = message;

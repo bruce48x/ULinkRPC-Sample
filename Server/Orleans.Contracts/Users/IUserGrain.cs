@@ -5,6 +5,7 @@ namespace Orleans.Contracts.Users;
 public interface IUserGrain : IGrainWithStringKey
 {
     Task<UserLoginResult> LoginAsync(string password);
+    Task<UserLoginResult> LoginAsync(string password, bool reconnect);
     Task<UserProfileSnapshot> GetProfileAsync();
     Task SetOnlineAsync(bool isOnline);
     Task SetScoreAsync(int score);

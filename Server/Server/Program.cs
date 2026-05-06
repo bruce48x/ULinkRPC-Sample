@@ -22,6 +22,7 @@ builder.Services.AddSingleton<GatewayMatchmakingService>();
 builder.Services.AddSingleton<IControlPlaneRpcServerConfigurator, DefaultControlPlaneRpcServerConfigurator>();
 builder.Services.AddSingleton<IRealtimeRpcServerConfigurator, DefaultRealtimeRpcServerConfigurator>();
 builder.Services.AddHostedService<MatchmakingHostedService>();
+builder.Services.AddHostedService<DisconnectedSessionCleanupHostedService>();
 builder.Services.AddULinkHostGateway(builder.Configuration);
 
 var host = builder.Build();

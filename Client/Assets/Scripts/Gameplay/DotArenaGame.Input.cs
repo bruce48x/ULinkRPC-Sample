@@ -42,7 +42,7 @@ namespace SampleClient.Gameplay
                 return;
             }
 
-            if (!IsConnected)
+            if (!CanSubmitGameplayInput)
             {
                 return;
             }

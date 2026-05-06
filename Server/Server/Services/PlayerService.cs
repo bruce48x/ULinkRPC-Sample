@@ -74,7 +74,7 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
         try
         {
             loginResult = await _clusterClient.GetGrain<IUserGrain>(account)
-                .LoginAsync(password)
+                .LoginAsync(password, req.Reconnect)
                 .ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
@@ -87,9 +87,26 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
         _connectionId = Guid.NewGuid().ToString("N");
         _controlLoggedIn = true;
 
-        _sessionDirectory.Register(loginResult.UserId, loginResult.SessionToken, _connectionId, _callback);
-        await _clusterClient.GetGrain<IPlayerSessionGrain>(loginResult.UserId)
-            .AttachAsync(new PlayerSessionAttachRequest
+        _sessionDirectory.Register(loginResult.UserId, loginResult.SessionToken, _connectionId, _callback, preserveSessionState: req.Reconnect);
+
+        var sessionGrain = _clusterClient.GetGrain<IPlayerSessionGrain>(loginResult.UserId);
+        if (req.Reconnect)
+        {
+            await sessionGrain
+                .ReconnectAsync(new PlayerSessionReconnectRequest
+                {
+                    UserId = loginResult.UserId,
+                    SessionToken = loginResult.SessionToken,
+                    ConnectionId = _connectionId,
+                    ReconnectedAtUtc = DateTime.UtcNow,
+                    ControlGateway = CloneGateway(_gatewayNodeIdentity.RealtimeEndpoint)
+                })
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await sessionGrain
+                .AttachAsync(new PlayerSessionAttachRequest
             {
                 UserId = loginResult.UserId,
                 SessionToken = loginResult.SessionToken,
@@ -98,6 +115,7 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
                 ControlGateway = CloneGateway(_gatewayNodeIdentity.RealtimeEndpoint)
             })
             .ConfigureAwait(false);
+        }
 
         return new LoginReply
         {
@@ -262,6 +280,10 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
             {
                 await ReleaseRealtimeAsync(_playerId, "Realtime disconnect").ConfigureAwait(false);
             }
+            else if (_controlLoggedIn)
+            {
+                await MarkControlDisconnectedAsync(_playerId, "Control disconnect").ConfigureAwait(false);
+            }
             else
             {
                 await ReleasePlayerAsync(_playerId, "Dispose").ConfigureAwait(false);
@@ -302,6 +324,30 @@ internal sealed class PlayerService : IPlayerService, IDisposable, IAsyncDisposa
         }
 
         _sessionDirectory.Remove(playerId);
+    }
+
+    private async Task MarkControlDisconnectedAsync(string playerId, string reason)
+    {
+        var connectionId = _connectionId ?? string.Empty;
+        var disconnectedAtUtc = DateTime.UtcNow;
+        try
+        {
+            await _clusterClient.GetGrain<IPlayerSessionGrain>(playerId)
+                .MarkDisconnectedAsync(new PlayerSessionDisconnectRequest
+                {
+                    UserId = playerId,
+                    ConnectionId = connectionId,
+                    DisconnectedAtUtc = disconnectedAtUtc,
+                    Reason = reason
+                })
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to mark control disconnect for player {PlayerId} during {Reason}.", playerId, reason);
+        }
+
+        _sessionDirectory.MarkControlDisconnected(playerId, connectionId, disconnectedAtUtc);
     }
 
     private Task ReleaseRealtimeAsync(string playerId, string reason)

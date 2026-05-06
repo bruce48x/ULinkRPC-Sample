@@ -368,6 +368,7 @@ namespace SampleClient.Gameplay
                 var currentEventMessage = _owner.GetCurrentEventMessage();
                 var localPlayerBuffText = _owner.GetLocalPlayerBuffText();
                 var inMultiplayerLobby = IsInMultiplayerLobby();
+                var matchmakingElapsedSeconds = _owner.GetMatchmakingElapsedSeconds();
 
                 return new DotArenaSceneUiSnapshot
                 {
@@ -397,6 +398,7 @@ namespace SampleClient.Gameplay
                         currentEventMessage,
                         endpoint,
                         _owner.IsConnected,
+                        _owner.IsRealtimeConnected,
                         _owner.IsConnecting),
                     Host = _owner._host,
                     Port = _owner._port,
@@ -419,7 +421,15 @@ namespace SampleClient.Gameplay
                         : _owner._flowState == FrontendFlowState.Matchmaking
                             ? "正在排队"
                             : "联机大厅",
-                    MatchmakingDetail = DotArenaUiTextComposer.BuildMatchmakingDetail(_owner._sessionMode, _owner._currentArenaMapVariant, _owner._currentArenaRuleVariant, _owner._status, currentEventMessage),
+                    MatchmakingElapsedSeconds = matchmakingElapsedSeconds,
+                    MatchmakingDetail = DotArenaUiTextComposer.BuildMatchmakingDetail(
+                        _owner._sessionMode,
+                        _owner._currentArenaMapVariant,
+                        _owner._currentArenaRuleVariant,
+                        _owner._status,
+                        currentEventMessage,
+                        matchmakingElapsedSeconds,
+                        _owner._pendingUiRequest == PendingUiRequest.CancelMatchmaking),
                     MetaPlayerSummary = DotArenaUiTextComposer.BuildMetaPlayerSummary(_owner._metaState, inMultiplayerLobby),
                     MetaLobbyHighlights = DotArenaUiTextComposer.BuildMetaLobbyHighlights(_owner._metaState, inMultiplayerLobby, previewPreset),
                     MetaProfileDetail = DotArenaUiTextComposer.BuildMetaProfileDetail(_owner._metaState, inMultiplayerLobby, previewPreset, _owner._lastRewardSummary, endpoint),

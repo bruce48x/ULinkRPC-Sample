@@ -55,6 +55,8 @@ namespace Shared.Interfaces
         public string Password { get; set; } = "";
         [MemoryPackOrder(2)]
         public bool GuestLogin { get; set; }
+        [MemoryPackOrder(3)]
+        public bool Reconnect { get; set; }
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]

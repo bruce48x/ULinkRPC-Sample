@@ -42,6 +42,7 @@ namespace SampleClient.Gameplay
         private bool _dashQueued;
         private float _nextInputAt;
         private float _singlePlayerTickAccumulator;
+        private float _matchmakingStartedAt = -1f;
 
         private int _localWinCount;
         private bool _hasAuthenticatedProfile;
@@ -59,6 +60,7 @@ namespace SampleClient.Gameplay
         private int _lastLoggedPlayerCount = -1;
         private bool _shutdownStarted;
         private bool _ignoreDisconnectCallback;
+        private bool _controlReconnectInProgress;
         private string _lastLoggedInputVector = string.Empty;
         private bool _showDebugPanel;
         private int _lastRoundRemainingSeconds;
@@ -76,6 +78,7 @@ namespace SampleClient.Gameplay
         private int _singlePlayerPlaylistIndex = -1;
         private ArenaMapVariant _currentArenaMapVariant = ArenaMapVariant.ClassicSquare;
         private ArenaRuleVariant _currentArenaRuleVariant = ArenaRuleVariant.ClassicElimination;
+        private RealtimeConnectionInfo? _lastRealtimeConnection;
 #if UNITY_EDITOR
         private Vector2 _editorMoveOverride;
         private bool _editorDashOverride;
@@ -86,8 +89,10 @@ namespace SampleClient.Gameplay
         private DotArenaNetworkSession NetworkSession => _networkSession ??= new DotArenaNetworkSession(OnDisconnected);
         private bool IsConnected => NetworkSession.IsConnected;
         private bool IsConnecting => NetworkSession.IsConnecting;
+        private bool IsRealtimeConnected => NetworkSession.IsRealtimeConnected;
+        private bool CanSubmitGameplayInput => NetworkSession.CanSubmitGameplayInput;
         private bool HasPendingUiRequest => _pendingUiRequest != PendingUiRequest.None;
-        private bool IsUiBusy => IsConnecting || HasPendingUiRequest;
+        private bool IsUiBusy => IsConnecting || HasPendingUiRequest || _controlReconnectInProgress;
 
         private DotArenaWorldSynchronizer WorldSynchronizer => _worldSynchronizer ??= new DotArenaWorldSynchronizer(
             _views,

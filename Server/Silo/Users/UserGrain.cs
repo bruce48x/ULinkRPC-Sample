@@ -48,6 +48,11 @@ public sealed class UserGrain : Grain, IUserGrain
 
     public async Task<UserLoginResult> LoginAsync(string password)
     {
+        return await LoginAsync(password, reconnect: false).ConfigureAwait(false);
+    }
+
+    public async Task<UserLoginResult> LoginAsync(string password, bool reconnect)
+    {
         var userId = this.GetPrimaryKeyString();
         var passwordHash = ComputePasswordHash(password);
         var now = DateTime.UtcNow;
@@ -67,7 +72,11 @@ public sealed class UserGrain : Grain, IUserGrain
             throw new InvalidOperationException("Invalid password.");
         }
 
-        _state.State.SessionToken = Guid.NewGuid().ToString("N");
+        if (!reconnect || string.IsNullOrWhiteSpace(_state.State.SessionToken))
+        {
+            _state.State.SessionToken = Guid.NewGuid().ToString("N");
+        }
+
         _state.State.LoginCount += 1;
         _state.State.LastLoginAtUtc = now;
         _state.State.IsOnline = true;

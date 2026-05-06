@@ -54,6 +54,11 @@ namespace SampleClient.Gameplay
                 ApplyWorldState(pending.WorldState);
             }
 
+            if (pending.RealtimeFallbackMessage != null)
+            {
+                HandleRealtimeFallbackOnMainThread(pending.RealtimeFallbackMessage);
+            }
+
             foreach (var deadEvent in pending.Deaths)
             {
                 HandleDeadEvent(deadEvent);
@@ -78,11 +83,29 @@ namespace SampleClient.Gameplay
                 return;
             }
 
+            if (_sessionMode == SessionMode.Multiplayer && _hasAuthenticatedProfile && !_shutdownStarted)
+            {
+                BeginControlReconnect(disconnectMessage);
+                return;
+            }
+
             ResetToModeSelect(
                 status: string.IsNullOrWhiteSpace(disconnectMessage) ? "Disconnected" : $"Disconnected: {disconnectMessage}",
                 eventMessage: "联机连接已断开",
                 toastMessage: null);
             Debug.LogWarning($"[DotArena] {_status}");
+        }
+
+        private void HandleRealtimeFallbackOnMainThread(string message)
+        {
+            if (_sessionMode != SessionMode.Multiplayer || !IsConnected)
+            {
+                HandleDisconnectedOnMainThread(message);
+                return;
+            }
+
+            PushEvent(message, 5f);
+            Debug.LogWarning($"[DotArena] {message}");
         }
 
         private void ApplyWorldState(WorldState worldState)
@@ -117,6 +140,7 @@ namespace SampleClient.Gameplay
                 _flowState != FrontendFlowState.Settlement &&
                 worldState.Players.Count > 0)
             {
+                _matchmakingStartedAt = -1f;
                 _flowState = FrontendFlowState.InMatch;
                 _entryMenuState = EntryMenuState.Hidden;
                 _status = _sessionMode == SessionMode.SinglePlayer
@@ -180,10 +204,16 @@ namespace SampleClient.Gameplay
         {
             _sessionMode = SessionMode.Multiplayer;
             _localPlayerId = string.IsNullOrWhiteSpace(_authenticatedPlayerId) ? _localPlayerId : _authenticatedPlayerId;
+            if (_matchmakingStartedAt < 0f &&
+                matchmakingStatus.State is MatchmakingState.Queued or MatchmakingState.Searching or MatchmakingState.Matched)
+            {
+                _matchmakingStartedAt = Time.time;
+            }
 
             if (matchmakingStatus.State == MatchmakingState.Matched &&
                 matchmakingStatus.RealtimeConnection is { Transport: RealtimeTransportKind.Kcp } realtimeConnection)
             {
+                _lastRealtimeConnection = CloneRealtimeConnection(realtimeConnection);
                 _status = "房间已就绪，正在连接 KCP";
                 _eventMessage = $"正在建立实时连接 {realtimeConnection.Host}:{realtimeConnection.Port}";
                 _ = EnsureRealtimeSessionAsync(realtimeConnection);
@@ -196,6 +226,10 @@ namespace SampleClient.Gameplay
             if (viewState.ClearPendingCancelRequest)
             {
                 _pendingUiRequest = PendingUiRequest.None;
+                if (matchmakingStatus.State is MatchmakingState.Canceled or MatchmakingState.Failed)
+                {
+                    _matchmakingStartedAt = -1f;
+                }
             }
 
             _flowState = viewState.FlowState;
@@ -214,7 +248,7 @@ namespace SampleClient.Gameplay
 
                 if (!connected)
                 {
-                    _callbackInbox.EnqueueDisconnected("KCP realtime attach failed");
+                    HandleRealtimeAttachFailure("KCP realtime attach failed");
                 }
             }
             catch (OperationCanceledException)
@@ -223,8 +257,33 @@ namespace SampleClient.Gameplay
             catch (Exception ex)
             {
                 Debug.LogError($"[DotArena] Realtime connect failed: {ex}");
-                _callbackInbox.EnqueueDisconnected(ex.Message);
+                HandleRealtimeAttachFailure(ex.Message);
             }
+        }
+
+        private void HandleRealtimeAttachFailure(string message)
+        {
+            if (NetworkSession.IsConnected)
+            {
+                _callbackInbox.EnqueueRealtimeFallback($"实时通道不可用，继续使用控制通道: {message}");
+                return;
+            }
+
+            _callbackInbox.EnqueueDisconnected(message);
+        }
+
+        private static RealtimeConnectionInfo CloneRealtimeConnection(RealtimeConnectionInfo source)
+        {
+            return new RealtimeConnectionInfo
+            {
+                Transport = source.Transport,
+                Host = source.Host,
+                Port = source.Port,
+                Path = source.Path,
+                RoomId = source.RoomId,
+                MatchId = source.MatchId,
+                SessionToken = source.SessionToken
+            };
         }
     }
 }

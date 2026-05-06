@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using Shared.Interfaces;
 
 namespace SampleClient.Gameplay
@@ -53,7 +52,6 @@ namespace SampleClient.Gameplay
         public static DotArenaMatchmakingViewState BuildMatchmakingViewState(MatchmakingStatusUpdate matchmakingStatus, bool cancelRequestPending)
         {
             var statusText = BuildMatchmakingStatusText(matchmakingStatus);
-            var detailText = BuildMatchmakingStatusDetail(matchmakingStatus);
 
             return matchmakingStatus.State switch
             {
@@ -61,19 +59,19 @@ namespace SampleClient.Gameplay
                     FrontendFlowState.Entry,
                     EntryMenuState.MultiplayerLobby,
                     statusText,
-                    string.IsNullOrWhiteSpace(detailText) ? "已返回联机大厅" : detailText,
+                    "已返回联机大厅",
                     clearPendingCancelRequest: true),
                 MatchmakingState.Failed => new DotArenaMatchmakingViewState(
                     FrontendFlowState.Entry,
                     EntryMenuState.MultiplayerLobby,
                     statusText,
-                    string.IsNullOrWhiteSpace(detailText) ? "请重新开始匹配" : detailText,
+                    "请重新开始匹配",
                     clearPendingCancelRequest: true),
                 MatchmakingState.Matched => new DotArenaMatchmakingViewState(
                     FrontendFlowState.Matchmaking,
                     EntryMenuState.Hidden,
                     statusText,
-                    string.IsNullOrWhiteSpace(detailText) ? "房间已就绪，等待世界状态" : detailText,
+                    "匹配成功，正在进入对局",
                     clearPendingCancelRequest: true),
                 MatchmakingState.Queued or MatchmakingState.Searching when cancelRequestPending => new DotArenaMatchmakingViewState(
                     FrontendFlowState.Matchmaking,
@@ -85,7 +83,7 @@ namespace SampleClient.Gameplay
                     FrontendFlowState.Matchmaking,
                     EntryMenuState.Hidden,
                     statusText,
-                    string.IsNullOrWhiteSpace(detailText) ? statusText : detailText,
+                    "正在为你寻找合适的对局",
                     clearPendingCancelRequest: false)
             };
         }
@@ -127,69 +125,15 @@ namespace SampleClient.Gameplay
 
         private static string BuildMatchmakingStatusText(MatchmakingStatusUpdate matchmakingStatus)
         {
-            if (!string.IsNullOrWhiteSpace(matchmakingStatus.Message))
-            {
-                return matchmakingStatus.Message;
-            }
-
             return matchmakingStatus.State switch
             {
-                MatchmakingState.Queued when matchmakingStatus.QueueSize > 0 => $"排队中 {matchmakingStatus.QueuePosition}/{matchmakingStatus.QueueSize}",
                 MatchmakingState.Queued => "排队中",
-                MatchmakingState.Searching when matchmakingStatus.MatchedPlayerCount > 0 && matchmakingStatus.RoomCapacity > 0 => $"匹配中 {matchmakingStatus.MatchedPlayerCount}/{matchmakingStatus.RoomCapacity}",
                 MatchmakingState.Searching => "匹配中",
-                MatchmakingState.Matched when !string.IsNullOrWhiteSpace(matchmakingStatus.RoomId) => $"已进入房间 {matchmakingStatus.RoomId}",
-                MatchmakingState.Matched => "已进入房间",
+                MatchmakingState.Matched => "匹配成功",
                 MatchmakingState.Canceled => "已取消匹配",
                 MatchmakingState.Failed => "匹配失败",
                 _ => "等待匹配"
             };
-        }
-
-        private static string BuildMatchmakingStatusDetail(MatchmakingStatusUpdate matchmakingStatus)
-        {
-            var details = new List<string>();
-
-            if (matchmakingStatus.QueuePosition > 0 && matchmakingStatus.QueueSize > 0)
-            {
-                details.Add($"Queue {matchmakingStatus.QueuePosition}/{matchmakingStatus.QueueSize}");
-            }
-
-            if (matchmakingStatus.MatchedPlayerCount > 0 && matchmakingStatus.RoomCapacity > 0)
-            {
-                details.Add($"Room {matchmakingStatus.MatchedPlayerCount}/{matchmakingStatus.RoomCapacity}");
-            }
-
-            if (!string.IsNullOrWhiteSpace(matchmakingStatus.RoomId))
-            {
-                details.Add($"Room {matchmakingStatus.RoomId}");
-            }
-
-            if (matchmakingStatus.RealtimeConnection is { } realtimeConnection)
-            {
-                var transport = realtimeConnection.Transport switch
-                {
-                    RealtimeTransportKind.Kcp => "KCP",
-                    RealtimeTransportKind.WebSocket => "WS",
-                    _ => "RT"
-                };
-
-                if (!string.IsNullOrWhiteSpace(realtimeConnection.Host) && realtimeConnection.Port > 0)
-                {
-                    details.Add($"{transport} {realtimeConnection.Host}:{realtimeConnection.Port}");
-                }
-                else
-                {
-                    details.Add($"{transport} ready");
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(matchmakingStatus.Message))
-            {
-                details.Add(matchmakingStatus.Message);
-            }
-
-            return details.Count == 0 ? string.Empty : string.Join("  |  ", details);
         }
     }
 }

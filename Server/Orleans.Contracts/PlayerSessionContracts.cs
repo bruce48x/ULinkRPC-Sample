@@ -6,6 +6,7 @@ namespace Orleans.Contracts.Sessions;
 public interface IPlayerSessionGrain : IGrainWithStringKey
 {
     Task<PlayerSessionSnapshot> AttachAsync(PlayerSessionAttachRequest request);
+    Task<PlayerSessionSnapshot> ReconnectAsync(PlayerSessionReconnectRequest request);
     Task<PlayerSessionSnapshot> MarkQueuedAsync(PlayerSessionQueueRequest request);
     Task<PlayerSessionSnapshot> ClearQueueAsync(PlayerSessionQueueClearRequest request);
     Task<PlayerSessionSnapshot> AssignRoomAsync(PlayerRoomAssignment request);
@@ -13,6 +14,25 @@ public interface IPlayerSessionGrain : IGrainWithStringKey
     Task<PlayerSessionSnapshot> MarkDisconnectedAsync(PlayerSessionDisconnectRequest request);
     Task<PlayerSessionSnapshot> HeartbeatAsync(PlayerSessionHeartbeatRequest request);
     Task<PlayerSessionSnapshot> GetSnapshotAsync();
+}
+
+[GenerateSerializer]
+public sealed class PlayerSessionReconnectRequest
+{
+    [Id(0)]
+    public string UserId { get; set; } = "";
+
+    [Id(1)]
+    public string SessionToken { get; set; } = "";
+
+    [Id(2)]
+    public string ConnectionId { get; set; } = "";
+
+    [Id(3)]
+    public DateTime ReconnectedAtUtc { get; set; }
+
+    [Id(4)]
+    public GatewayEndpointDescriptor ControlGateway { get; set; } = new();
 }
 
 [GenerateSerializer]

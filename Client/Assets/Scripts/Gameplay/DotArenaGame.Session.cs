@@ -24,7 +24,7 @@ namespace SampleClient.Gameplay
 
             try
             {
-                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, _account, _password, guestLogin: false, this, _cts.Token);
+                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, _account, _password, guestLogin: false, reconnect: false, this, _cts.Token);
 
                 if (reply.Code != 0)
                 {
@@ -95,7 +95,7 @@ namespace SampleClient.Gameplay
 
             try
             {
-                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, string.Empty, string.Empty, guestLogin: true, this, _cts.Token);
+                var reply = await NetworkSession.ConnectAndLoginAsync(_host, _port, _path, string.Empty, string.Empty, guestLogin: true, reconnect: false, this, _cts.Token);
 
                 if (reply.Code != 0)
                 {
@@ -163,6 +163,92 @@ namespace SampleClient.Gameplay
             _callbackInbox.EnqueueDisconnected(ex?.Message);
         }
 
+        private void BeginControlReconnect(string? disconnectMessage)
+        {
+            if (_controlReconnectInProgress)
+            {
+                return;
+            }
+
+            _controlReconnectInProgress = true;
+            _status = string.IsNullOrWhiteSpace(disconnectMessage)
+                ? "主连接已断开，正在重连"
+                : $"主连接已断开，正在重连: {disconnectMessage}";
+            _eventMessage = "正在恢复联机主连接";
+            _ = ReconnectControlAsync();
+        }
+
+        private async Task ReconnectControlAsync()
+        {
+            const int maxAttempts = 5;
+            var lastError = string.Empty;
+
+            try
+            {
+                for (var attempt = 1; attempt <= maxAttempts && !_cts.IsCancellationRequested; attempt++)
+                {
+                    _status = $"主连接重连中 ({attempt}/{maxAttempts})";
+                    _eventMessage = "正在恢复联机主连接";
+
+                    try
+                    {
+                        var reply = await NetworkSession.ConnectAndLoginAsync(
+                            _host,
+                            _port,
+                            _path,
+                            _account,
+                            _password,
+                            guestLogin: false,
+                            reconnect: true,
+                            this,
+                            _cts.Token);
+
+                        if (reply.Code == 0)
+                        {
+                            _localPlayerId = string.IsNullOrWhiteSpace(reply.PlayerId) ? _authenticatedPlayerId : reply.PlayerId;
+                            _authenticatedPlayerId = _localPlayerId;
+                            _hasAuthenticatedProfile = true;
+                            _localWinCount = Math.Max(0, reply.WinCount);
+                            _sessionMode = SessionMode.Multiplayer;
+                            _status = _flowState == FrontendFlowState.InMatch
+                                ? $"In Match: {_localPlayerId}"
+                                : $"联机大厅: {_localPlayerId}";
+                            _eventMessage = "主连接已恢复";
+
+                            if (_lastRealtimeConnection != null && !NetworkSession.IsRealtimeConnected)
+                            {
+                                _ = EnsureRealtimeSessionAsync(_lastRealtimeConnection);
+                            }
+
+                            return;
+                        }
+
+                        lastError = $"code={reply.Code}";
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastError = ex.Message;
+                        Debug.LogWarning($"[DotArena] Control reconnect attempt {attempt} failed: {ex.Message}");
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(1 << attempt, 8)), _cts.Token);
+                }
+            }
+            finally
+            {
+                _controlReconnectInProgress = false;
+            }
+
+            ResetToModeSelect(
+                status: string.IsNullOrWhiteSpace(lastError) ? "主连接重连失败" : $"主连接重连失败: {lastError}",
+                eventMessage: "联机连接已断开，请重新登录",
+                toastMessage: null);
+        }
+
         private Task ReturnToMainMenuAfterMatchAsync(bool preserveLoginState)
         {
             return ReturnToMainMenuAfterMatchAsync(preserveLoginState, _localPlayerId, true);
@@ -178,6 +264,8 @@ namespace SampleClient.Gameplay
             if (_sessionMode == SessionMode.Multiplayer)
             {
                 _ = NetworkSession.DisposeRealtimeAsync();
+                _lastRealtimeConnection = null;
+                _matchmakingStartedAt = -1f;
             }
 
             if (_sessionMode != SessionMode.Multiplayer)
@@ -300,6 +388,7 @@ namespace SampleClient.Gameplay
                 try
                 {
                     await NetworkSession.DisposeRealtimeAsync().ConfigureAwait(false);
+                    _lastRealtimeConnection = null;
                     await NetworkSession.CancelMatchmakingAsync(_cts.Token).ConfigureAwait(false);
                     _status = "正在取消匹配";
                     _eventMessage = "等待服务器确认取消";
@@ -328,6 +417,7 @@ namespace SampleClient.Gameplay
             }
 
             _localMatch = null;
+            _matchmakingStartedAt = -1f;
             _flowState = FrontendFlowState.Entry;
             if (preserveLoginState)
             {
@@ -433,10 +523,12 @@ namespace SampleClient.Gameplay
             _status = $"排队中: {_localPlayerId}";
             _eventMessage = "正在请求服务器分房";
             _settlementSummary = null;
+            _matchmakingStartedAt = Time.time;
 
             try
             {
                 await NetworkSession.DisposeRealtimeAsync().ConfigureAwait(false);
+                _lastRealtimeConnection = null;
                 await NetworkSession.StartMatchmakingAsync(_cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -445,6 +537,7 @@ namespace SampleClient.Gameplay
             catch (Exception ex)
             {
                 Debug.LogWarning($"[DotArena] Start matchmaking failed: {ex.Message}");
+                _matchmakingStartedAt = -1f;
                 _flowState = FrontendFlowState.Entry;
                 _entryMenuState = EntryMenuState.MultiplayerLobby;
                 _status = $"Start Match failed: {ex.Message}";
@@ -528,6 +621,9 @@ namespace SampleClient.Gameplay
             _settlementSummary = null;
             _lastRewardSummary = null;
             _pendingUiRequest = PendingUiRequest.None;
+            _controlReconnectInProgress = false;
+            _lastRealtimeConnection = null;
+            _matchmakingStartedAt = -1f;
             _flowState = FrontendFlowState.Entry;
             _entryMenuState = EntryMenuState.ModeSelect;
             _sessionMode = SessionMode.None;

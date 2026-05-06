@@ -71,7 +71,7 @@ namespace SampleClient.Gameplay
                 : $"Next: Return to Mode Select or replay {DotArenaSinglePlayerCatalog.GetPresetLabel(mapVariant, ruleVariant)}.";
         }
 
-        public static string BuildDebugPanelDetail(string status, FrontendFlowState flowState, EntryMenuState entryMenuState, SessionMode sessionMode, string localPlayerId, int lastWorldTick, int viewCount, string localPlayerBuffText, string currentEventMessage, string endpoint, bool isConnected, bool isConnecting)
+        public static string BuildDebugPanelDetail(string status, FrontendFlowState flowState, EntryMenuState entryMenuState, SessionMode sessionMode, string localPlayerId, int lastWorldTick, int viewCount, string localPlayerBuffText, string currentEventMessage, string endpoint, bool isConnected, bool isRealtimeConnected, bool isConnecting)
         {
             var mode = sessionMode switch
             {
@@ -91,14 +91,37 @@ namespace SampleClient.Gameplay
                 $"Mass: {localPlayerBuffText}\n" +
                 $"Event: {currentEventMessage}\n" +
                 $"Endpoint: {endpoint}\n" +
-                $"Connected: {isConnected} / Connecting: {isConnecting}";
+                $"Control: {isConnected} / Realtime: {isRealtimeConnected} / Connecting: {isConnecting}";
         }
 
-        public static string BuildMatchmakingDetail(SessionMode sessionMode, ArenaMapVariant mapVariant, ArenaRuleVariant ruleVariant, string status, string currentEventMessage)
+        public static string BuildMatchmakingDetail(SessionMode sessionMode, ArenaMapVariant mapVariant, ArenaRuleVariant ruleVariant, string status, string currentEventMessage, int elapsedSeconds, bool cancelRequestPending)
         {
-            return sessionMode == SessionMode.SinglePlayer
-                ? $"Preset: {DotArenaSinglePlayerCatalog.GetPresetLabel(mapVariant, ruleVariant)}\nSpawning the local arena and filling the roster with bots."
-                : $"{status}\n{currentEventMessage}";
+            if (sessionMode == SessionMode.SinglePlayer)
+            {
+                return $"Preset: {DotArenaSinglePlayerCatalog.GetPresetLabel(mapVariant, ruleVariant)}\nSpawning the local arena and filling the roster with bots.";
+            }
+
+            var elapsedText = $"已等待 {FormatElapsedSeconds(elapsedSeconds)}";
+            if (cancelRequestPending)
+            {
+                return $"正在取消匹配\n{elapsedText}\n请稍候，正在返回大厅。";
+            }
+
+            if (status.Contains("成功", StringComparison.Ordinal) ||
+                currentEventMessage.Contains("进入对局", StringComparison.Ordinal))
+            {
+                return $"匹配成功\n{elapsedText}\n正在进入对局。";
+            }
+
+            return $"正在寻找对局\n{elapsedText}\n可随时取消匹配。";
+        }
+
+        private static string FormatElapsedSeconds(int elapsedSeconds)
+        {
+            elapsedSeconds = Math.Max(0, elapsedSeconds);
+            var minutes = elapsedSeconds / 60;
+            var seconds = elapsedSeconds % 60;
+            return minutes > 0 ? $"{minutes}分{seconds:D2}秒" : $"{seconds}秒";
         }
 
         public static string BuildMetaPlayerSummary(DotArenaMetaState? metaState, bool isInMultiplayerLobby)
@@ -140,7 +163,7 @@ namespace SampleClient.Gameplay
             }
 
             var modeLine = isInMultiplayerLobby
-                ? $"Lobby: Multiplayer lobby ready as {metaState.PlayerId}\nEndpoint: {endpoint}\nAction: Click the bottom '开始匹配' button to enter queue"
+                ? $"Lobby: Multiplayer lobby ready as {metaState.PlayerId}\nAction: Click the bottom '开始匹配' button to enter queue"
                 : $"Next local preset: {DotArenaSinglePlayerCatalog.GetPresetLabel(previewPreset.MapVariant, previewPreset.RuleVariant)}";
 
             var lastReward = lastRewardSummary == null

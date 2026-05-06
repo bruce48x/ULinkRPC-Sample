@@ -41,6 +41,25 @@ public sealed class PlayerSessionGrain : Grain, IPlayerSessionGrain
         return BuildSnapshot();
     }
 
+    public async Task<PlayerSessionSnapshot> ReconnectAsync(PlayerSessionReconnectRequest request)
+    {
+        var userId = NormalizeUserId(request.UserId);
+        var reconnectedAtUtc = NormalizeUtc(request.ReconnectedAtUtc);
+        EnsureState(userId);
+
+        _state.State.UserId = userId;
+        _state.State.SessionToken = request.SessionToken;
+        _state.State.ConnectionId = request.ConnectionId;
+        _state.State.IsOnline = true;
+        _state.State.LastConnectedAtUtc = reconnectedAtUtc;
+        _state.State.LastHeartbeatAtUtc = reconnectedAtUtc;
+        _state.State.ReconnectToken = EnsureReconnectToken(_state.State.ReconnectToken);
+        _state.State.ControlGateway = CloneGateway(request.ControlGateway);
+
+        await _state.WriteStateAsync();
+        return BuildSnapshot();
+    }
+
     public async Task<PlayerSessionSnapshot> MarkQueuedAsync(PlayerSessionQueueRequest request)
     {
         var userId = NormalizeUserId(request.UserId);

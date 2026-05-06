@@ -42,6 +42,7 @@ namespace SampleClient.Gameplay
         public string SettlementPrimaryActionText { get; set; }
         public string MatchmakingTitle { get; set; }
         public string MatchmakingDetail { get; set; }
+        public int MatchmakingElapsedSeconds { get; set; }
         public string MetaPlayerSummary { get; set; }
         public string MetaLobbyHighlights { get; set; }
         public string MetaProfileDetail { get; set; }

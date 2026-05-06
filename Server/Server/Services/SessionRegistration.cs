@@ -18,6 +18,7 @@ internal sealed class SessionRegistration
     public IPlayerCallback? ControlCallback { get; set; }
     public IPlayerCallback? RealtimeCallback { get; set; }
     public string? RealtimeConnectionId { get; set; }
+    public DateTime? ControlDisconnectedAtUtc { get; set; }
     public string? RoomId { get; set; }
     public string? MatchId { get; set; }
     public int SeatIndex { get; set; } = -1;

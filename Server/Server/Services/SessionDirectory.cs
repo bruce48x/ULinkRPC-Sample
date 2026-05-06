@@ -7,7 +7,7 @@ internal sealed class SessionDirectory
     private readonly Lock _gate = new();
     private readonly Dictionary<string, SessionRegistration> _byPlayerId = new(StringComparer.Ordinal);
 
-    public void Register(string playerId, string sessionToken, string connectionId, IPlayerCallback callback)
+    public void Register(string playerId, string sessionToken, string connectionId, IPlayerCallback callback, bool preserveSessionState)
     {
         lock (_gate)
         {
@@ -16,10 +16,42 @@ internal sealed class SessionDirectory
                 registration.SessionToken = sessionToken;
                 registration.ConnectionId = connectionId;
                 registration.ControlCallback = callback;
+                registration.ControlDisconnectedAtUtc = null;
+                if (!preserveSessionState)
+                {
+                    registration.RealtimeConnectionId = null;
+                    registration.RealtimeCallback = null;
+                    registration.RoomId = null;
+                    registration.MatchId = null;
+                    registration.SeatIndex = -1;
+                    registration.MatchmakingTicketId = null;
+                }
+
                 return;
             }
 
             _byPlayerId[playerId] = new SessionRegistration(playerId, sessionToken, connectionId, callback);
+        }
+    }
+
+    public void MarkControlDisconnected(string playerId, string? connectionId, DateTime disconnectedAtUtc)
+    {
+        lock (_gate)
+        {
+            if (!_byPlayerId.TryGetValue(playerId, out var registration))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(connectionId) &&
+                !string.Equals(registration.ConnectionId, connectionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            registration.ConnectionId = string.Empty;
+            registration.ControlCallback = null;
+            registration.ControlDisconnectedAtUtc = disconnectedAtUtc;
         }
     }
 
@@ -149,6 +181,18 @@ internal sealed class SessionDirectory
             return _byPlayerId.Values
                 .Where(static registration => !string.IsNullOrWhiteSpace(registration.RoomId))
                 .Where(registration => string.Equals(registration.RoomId, roomId, StringComparison.Ordinal))
+                .ToArray();
+        }
+    }
+
+    public IReadOnlyList<SessionRegistration> GetExpiredControlDisconnects(DateTime nowUtc, TimeSpan gracePeriod)
+    {
+        lock (_gate)
+        {
+            return _byPlayerId.Values
+                .Where(registration => registration.ControlCallback is null)
+                .Where(registration => registration.ControlDisconnectedAtUtc is DateTime disconnectedAtUtc &&
+                                       nowUtc - disconnectedAtUtc >= gracePeriod)
                 .ToArray();
         }
     }
