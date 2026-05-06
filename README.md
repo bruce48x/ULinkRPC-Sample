@@ -92,6 +92,16 @@ AI 的目标是让对局总人数维持在 `4`：
 - 广播 `WorldState / PlayerDead / MatchEnd`
 - 持久化真人玩家胜场
 
+本地开发时，Orleans silo 默认在 `Server/Silo/appsettings.json` 中把 `Orleans:AdvertisedIPAddress`
+固定为 `127.0.0.1`。如果去掉这个配置，Windows/WSL/Docker 多网卡环境可能会把 `172.*`
+虚拟网卡地址写入 ADO.NET membership，导致同一台机器上的 client 或新 silo 连接旧地址失败。
+遇到这种情况时，停止 `Server/Silo` 和 `Server/Server` 后清理当前开发集群的 membership 记录：
+
+```sql
+DELETE FROM OrleansMembershipTable WHERE DeploymentId = 'dev';
+DELETE FROM OrleansMembershipVersionTable WHERE DeploymentId = 'dev';
+```
+
 ### Client
 
 `Client/Assets/Scripts/Gameplay/DotArenaGame.cs`

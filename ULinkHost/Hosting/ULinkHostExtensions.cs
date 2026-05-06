@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Orleans.Configuration;
@@ -53,6 +54,7 @@ public static class ULinkHostExtensions
                 ?? throw new InvalidOperationException("Missing configuration: Orleans:ConnectionString");
             var siloPort = ParsePort(configuration["Orleans:SiloPort"], 11111);
             var gatewayPort = ParsePort(configuration["Orleans:GatewayPort"], 30000);
+            var advertisedIPAddress = ParseIPAddress(configuration["Orleans:AdvertisedIPAddress"]);
 
             silo.Configure<ClusterOptions>(options =>
             {
@@ -60,7 +62,15 @@ public static class ULinkHostExtensions
                 options.ServiceId = serviceId;
             });
 
-            silo.ConfigureEndpoints(siloPort: siloPort, gatewayPort: gatewayPort);
+            if (advertisedIPAddress is null)
+            {
+                silo.ConfigureEndpoints(siloPort: siloPort, gatewayPort: gatewayPort);
+            }
+            else
+            {
+                silo.ConfigureEndpoints(advertisedIP: advertisedIPAddress, siloPort: siloPort, gatewayPort: gatewayPort);
+            }
+
             silo.UseAdoNetClustering(options =>
             {
                 options.Invariant = invariant;
@@ -76,5 +86,17 @@ public static class ULinkHostExtensions
         return int.TryParse(rawValue, out var port) && port > 0
             ? port
             : fallback;
+    }
+
+    private static IPAddress? ParseIPAddress(string? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return null;
+        }
+
+        return IPAddress.TryParse(rawValue, out var address)
+            ? address
+            : throw new InvalidOperationException($"Invalid configuration: Orleans:AdvertisedIPAddress '{rawValue}'");
     }
 }
